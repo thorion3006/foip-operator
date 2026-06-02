@@ -1,4 +1,4 @@
-apiVersion: netcup.netcup.noshoes.xyz/v1
+apiVersion: netcup.foip.noshoes.xyz/v1
 kind: FailoverIp
 metadata:
   labels:

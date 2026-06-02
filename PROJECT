@@ -3,7 +3,7 @@
 # and allow the plugins properly work.
 # More info: https://book.kubebuilder.io/reference/project-config.html
 cliVersion: (devel)
-domain: netcup.noshoes.xyz
+domain: foip.noshoes.xyz
 layout:
 - go.kubebuilder.io/v4
 projectName: foip-operator
@@ -13,7 +13,7 @@ resources:
     crdVersion: v1
     namespaced: true
   controller: true
-  domain: netcup.noshoes.xyz
+  domain: foip.noshoes.xyz
   group: netcup
   kind: FailoverIp
   path: github.com/niklasbeierl/foip-operator/api/v1

@@ -47,7 +47,7 @@ type NodeInterfaceReconciler struct {
 	NodeName string
 }
 
-// +kubebuilder:rbac:groups=netcup.noshoes.xyz,resources=failoverips,verbs=get;list;watch
+// +kubebuilder:rbac:groups=foip.noshoes.xyz,resources=failoverips,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch
 
 func (r *NodeInterfaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {

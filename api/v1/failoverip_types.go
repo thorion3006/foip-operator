@@ -21,8 +21,8 @@ import (
 )
 
 const (
-	MACAnnotation        = "netcup.noshoes.xyz/primary-mac"
-	ServerNameAnnotation = "netcup.noshoes.xyz/server-name"
+	MACAnnotation        = "foip.noshoes.xyz/primary-mac"
+	ServerNameAnnotation = "foip.noshoes.xyz/server-name"
 )
 
 type FailoverIpSpec struct {

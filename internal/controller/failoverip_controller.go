@@ -45,8 +45,8 @@ type FailoverIpReconciler struct {
 	Scheme *runtime.Scheme
 }
 
-// +kubebuilder:rbac:groups=netcup.noshoes.xyz,resources=failoverips,verbs=get;list;watch;update;patch
-// +kubebuilder:rbac:groups=netcup.noshoes.xyz,resources=failoverips/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=foip.noshoes.xyz,resources=failoverips,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=foip.noshoes.xyz,resources=failoverips/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get
 

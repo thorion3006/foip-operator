@@ -19,7 +19,7 @@ rules:
   verbs:
   - get
 - apiGroups:
-  - netcup.noshoes.xyz
+  - foip.noshoes.xyz
   resources:
   - failoverips
   verbs:
@@ -29,7 +29,7 @@ rules:
   - update
   - watch
 - apiGroups:
-  - netcup.noshoes.xyz
+  - foip.noshoes.xyz
   resources:
   - failoverips/status
   verbs:
