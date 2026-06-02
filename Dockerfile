@@ -16,6 +16,7 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -o no
 # Minimal runtime image with both binaries.
 # The Deployment runs /foip; the DaemonSet runs /node-interface (set via pod spec command).
 FROM gcr.io/distroless/static:nonroot
+LABEL org.opencontainers.image.source="https://github.com/niklasbeierl/foip-operator"
 WORKDIR /
 COPY --from=builder /workspace/foip           /foip
 COPY --from=builder /workspace/node-interface /node-interface
