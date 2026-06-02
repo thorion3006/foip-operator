@@ -204,7 +204,7 @@ func (r *FailoverIpReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	r.APIReader = mgr.GetAPIReader()
 	r.requeueAfter = defaultRequeueTime
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&netcupv1.FailoverIp{}).
+		For(&netcupv1.FailoverIp{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		Watches(
 			&corev1.Node{},
 			handler.EnqueueRequestsFromMapFunc(r.nodeToFoips),
