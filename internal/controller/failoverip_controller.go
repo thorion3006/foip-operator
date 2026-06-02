@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"slices"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -73,10 +74,7 @@ func (r *FailoverIpReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		log.Info("Updating desiredNode", "node", better.Name)
 	}
 
-	if foip.Status.DesiredNode == "" {
-		return ctrl.Result{}, nil
-	}
-	if foip.Status.DesiredNode == foip.Status.AssignedNode {
+	if foip.Status.DesiredNode == "" || foip.Status.DesiredNode == foip.Status.AssignedNode {
 		return ctrl.Result{}, nil
 	}
 
@@ -116,15 +114,7 @@ func (r *FailoverIpReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		return ctrl.Result{}, fmt.Errorf("getVServerIPs: %w", err)
 	}
 
-	alreadyThere := false
-	for _, ip := range ips {
-		if ip == foip.Spec.IP {
-			alreadyThere = true
-			break
-		}
-	}
-
-	if !alreadyThere {
+	if !slices.Contains(ips, foip.Spec.IP) {
 		log.Info("Routing IP via netcup API", "ip", foip.Spec.IP, "node", foip.Status.DesiredNode)
 		if err := nc.ChangeIPRouting(ctx, foip.Spec.IP, 32, vserverName, mac); err != nil {
 			return ctrl.Result{}, fmt.Errorf("changeIPRouting: %w", err)

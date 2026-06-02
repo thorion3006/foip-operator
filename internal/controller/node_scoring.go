@@ -24,7 +24,6 @@ import (
 
 // nodeScore captures the health issues of a node in priority order.
 // Fields are ordered from most to least severe; false means "no issue".
-// This mirrors the Python ISSUES tuple used for sorting.
 type nodeScore struct {
 	networkUnavailable bool
 	readyFalse         bool
@@ -129,6 +128,7 @@ func betterNode(nodes []corev1.Node, currentName string) *corev1.Node {
 		// equal score: worseThan already handles name tie-break
 	}
 
+	// No node currently assignment, take best
 	if currentName == "" {
 		return best
 	}
@@ -143,6 +143,6 @@ func betterNode(nodes []corev1.Node, currentName string) *corev1.Node {
 			return best
 		}
 	}
-	// currentName is not in the candidate list (deleted / lost annotations) → always return best.
+	// currentName is not in the candidate list (deleted / lost annotations)
 	return best
 }

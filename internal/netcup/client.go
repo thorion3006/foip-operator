@@ -136,7 +136,7 @@ func (c *Client) call(ctx context.Context, bodyContent string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("netcup SOAP call: %w", err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 
 	data, err := io.ReadAll(res.Body)
 	if err != nil {
