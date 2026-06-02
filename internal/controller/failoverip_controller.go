@@ -37,24 +37,53 @@ import (
 	"github.com/niklasbeierl/foip-operator/internal/netcup"
 )
 
+// Reconcile is re-queued after 24 hours to ensure the netcup refresh token is used and
+// doesn't expire.
+const defaultRequeueTime = 24 * time.Hour
+
 // FailoverIpReconciler reconciles FailoverIp objects and drives the netcup API.
 // It runs as a Deployment with leader election; only one instance is active at a time.
 type FailoverIpReconciler struct {
 	client.Client
 	Scheme    *runtime.Scheme
 	APIReader client.Reader
+
+	requeueAfter time.Duration
 }
 
-// +kubebuilder:rbac:groups=foip.noshoes.xyz,resources=failoverips,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=foip.noshoes.xyz,resources=failoverips,verbs=get;list;watch;update
 // +kubebuilder:rbac:groups=foip.noshoes.xyz,resources=failoverips/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch
-// +kubebuilder:rbac:groups="",resources=secrets,verbs=get
 func (r *FailoverIpReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
 	var foip netcupv1.FailoverIp
 	if err := r.Get(ctx, req.NamespacedName, &foip); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+
+	// Fetch netcup SCP credentials.
+	var secret corev1.Secret
+	if err := r.APIReader.Get(ctx, types.NamespacedName{Name: foip.Spec.SecretName, Namespace: req.Namespace}, &secret); err != nil {
+		return ctrl.Result{}, fmt.Errorf("fetching secret %s: %w", foip.Spec.SecretName, err)
+	}
+	refreshToken := string(secret.Data["refreshToken"])
+	userIDStr := string(secret.Data["userId"])
+	if refreshToken == "" || userIDStr == "" {
+		return ctrl.Result{}, fmt.Errorf("secret %s missing refreshToken or userId", foip.Spec.SecretName)
+	}
+	var userID int
+	if _, err := fmt.Sscanf(userIDStr, "%d", &userID); err != nil {
+		return ctrl.Result{}, fmt.Errorf("secret %s: userId is not an integer: %w", foip.Spec.SecretName, err)
+	}
+
+	nc := netcup.New(userID, refreshToken)
+
+	// Always call FindFailoverIP: verifies actual netcup routing state and
+	// keeps the OAuth2 refresh token alive (expires if unused for 30 days).
+	foipID, currentServerID, err := nc.FindFailoverIP(ctx, foip.Spec.IP)
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("findFailoverIP: %w", err)
 	}
 
 	var nodeList corev1.NodeList
@@ -73,8 +102,9 @@ func (r *FailoverIpReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		log.Info("Updating desiredNode", "node", better.Name)
 	}
 
-	if foip.Status.DesiredNode == "" || foip.Status.DesiredNode == foip.Status.AssignedNode {
-		return ctrl.Result{}, nil
+	// No candidate nodes yet — nothing to do.
+	if foip.Status.DesiredNode == "" {
+		return ctrl.Result{RequeueAfter: r.requeueAfter}, nil
 	}
 
 	// Resolve the target server ID from the desired node's annotation.
@@ -91,42 +121,25 @@ func (r *FailoverIpReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		return ctrl.Result{}, fmt.Errorf("node %s annotation %s is not an integer: %w", foip.Status.DesiredNode, netcupv1.ServerIDAnnotation, err)
 	}
 
-	// Fetch netcup SCP credentials.
-	var secret corev1.Secret
-	if err := r.APIReader.Get(ctx, types.NamespacedName{Name: foip.Spec.SecretName, Namespace: req.Namespace}, &secret); err != nil {
-		return ctrl.Result{}, fmt.Errorf("fetching secret %s: %w", foip.Spec.SecretName, err)
-	}
-	refreshToken := string(secret.Data["refreshToken"])
-	userIDStr := string(secret.Data["userId"])
-	if refreshToken == "" || userIDStr == "" {
-		return ctrl.Result{}, fmt.Errorf("secret %s missing refreshToken or userId", foip.Spec.SecretName)
-	}
-	var userID int
-	if _, err := fmt.Sscanf(userIDStr, "%d", &userID); err != nil {
-		return ctrl.Result{}, fmt.Errorf("secret %s: userId is not an integer: %w", foip.Spec.SecretName, err)
+	if currentServerID == targetServerID {
+		log.Info("IP alread routed correctly in netcup", "ip", foip.Spec.IP, "serverID", targetServerID)
+		patch := client.MergeFrom(foip.DeepCopy())
+		foip.Status.AssignedNode = foip.Status.DesiredNode
+		foip.Status.LastSyncSuccess = time.Now().UTC().Format(time.RFC3339)
+		if err := r.Status().Patch(ctx, &foip, patch); err != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{RequeueAfter: r.requeueAfter}, nil
 	}
 
-	// Record the attempt before touching the API.
+	log.Info("Routing IP via netcup SCP API", "ip", foip.Spec.IP, "serverID", targetServerID)
 	patch := client.MergeFrom(foip.DeepCopy())
 	foip.Status.LastSyncAttempt = time.Now().UTC().Format(time.RFC3339)
 	if err := r.Status().Patch(ctx, &foip, patch); err != nil {
 		return ctrl.Result{}, err
 	}
-
-	nc := netcup.New(userID, refreshToken)
-
-	foipID, currentServerID, err := nc.FindFailoverIP(ctx, foip.Spec.IP)
-	if err != nil {
-		return ctrl.Result{}, fmt.Errorf("findFailoverIP: %w", err)
-	}
-
-	if currentServerID == targetServerID {
-		log.Info("IP already routed to target server in netcup", "ip", foip.Spec.IP, "serverID", targetServerID)
-	} else {
-		log.Info("Routing IP via netcup SCP API", "ip", foip.Spec.IP, "serverID", targetServerID)
-		if err := nc.RouteFailoverIP(ctx, foipID, targetServerID); err != nil {
-			return ctrl.Result{}, fmt.Errorf("routeFailoverIP: %w", err)
-		}
+	if err := nc.RouteFailoverIP(ctx, foipID, targetServerID); err != nil {
+		return ctrl.Result{}, fmt.Errorf("routeFailoverIP: %w", err)
 	}
 
 	patch = client.MergeFrom(foip.DeepCopy())
@@ -136,7 +149,7 @@ func (r *FailoverIpReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		return ctrl.Result{}, err
 	}
 
-	return ctrl.Result{}, nil
+	return ctrl.Result{RequeueAfter: r.requeueAfter}, nil
 }
 
 // nodeChangePredicate filters Node update events to only those that affect scoring
@@ -189,6 +202,7 @@ func (r *FailoverIpReconciler) nodeToFoips(ctx context.Context, _ client.Object)
 
 func (r *FailoverIpReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	r.APIReader = mgr.GetAPIReader()
+	r.requeueAfter = defaultRequeueTime
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&netcupv1.FailoverIp{}).
 		Watches(
