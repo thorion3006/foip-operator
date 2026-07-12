@@ -23,32 +23,18 @@ spec:
         description: FailoverIp is the Schema for the failoverips API.
         properties:
           apiVersion:
-            description: |-
-              APIVersion defines the versioned schema of this representation of an object.
-              Servers should convert recognized schemas to the latest internal value, and
-              may reject unrecognized values.
-              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
             type: string
           kind:
-            description: |-
-              Kind is a string value representing the REST resource this object represents.
-              Servers may infer this from the endpoint the client submits requests to.
-              Cannot be updated.
-              In CamelCase.
-              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
             type: string
           metadata:
             type: object
           spec:
             properties:
               ip:
-                description: ip is the failover IP address to manage (bare IP, no
-                  prefix length).
+                description: ip is the failover IP address to manage (bare IP, no prefix length).
                 type: string
               secretName:
-                description: |-
-                  secretName is the name of the Secret containing netcup SCP credentials.
-                  The Secret must have keys refreshToken (OAuth2 offline token) and userId (netcup user ID).
+                description: secretName names the Secret containing refreshToken and userId.
                 type: string
             required:
             - ip
@@ -57,19 +43,19 @@ spec:
           status:
             properties:
               assignedNode:
-                description: assignedNode is the node the IP was last successfully
-                  routed to via the netcup API.
+                description: assignedNode is the node confirmed as the provider-routed owner.
                 type: string
               desiredNode:
-                description: desiredNode is the node the IP should be routed to.
+                description: desiredNode is the target selected for the next or current ownership state.
+                type: string
+              preparedNode:
+                description: preparedNode is the desired node that confirmed the /32 is present locally.
                 type: string
               lastSyncAttempt:
-                description: lastSyncAttempt is the RFC3339 timestamp of the last
-                  netcup API call attempt.
+                description: lastSyncAttempt is the RFC3339 timestamp of the last provider route attempt.
                 type: string
               lastSyncSuccess:
-                description: lastSyncSuccess is the RFC3339 timestamp of the last
-                  successful netcup API call.
+                description: lastSyncSuccess is the RFC3339 timestamp of the last verified route handoff.
                 type: string
             type: object
         required:
