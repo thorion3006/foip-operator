@@ -25,9 +25,9 @@ rules:
   verbs:
   - get
   - list
-  - watch
   - patch
   - update
+  - watch
 - apiGroups:
   - foip.noshoes.xyz
   resources:

@@ -120,7 +120,7 @@ Only nodes with both annotations are considered for assignment.
 ### 3. Install the chart
 
 ```sh
-helm install foip-operator oci://ghcr.io/niklasbeierl/foip-operator \
+helm install foip-operator oci://ghcr.io/thorion3006/foip-operator \
   --namespace <namespace> \
   --version <version> \
   -f my-values.yaml
@@ -130,13 +130,13 @@ Helm unfortunately can't list available versions from oci registries yet, but yo
 for example use skopeo.
 
 ```sh
-kopeo list-tags docker://ghcr.io/niklasbeierl/foip-operator
+kopeo list-tags docker://ghcr.io/thorion3006/foip-operator
 ```
 
 To get the default values:
 
 ```sh
-helm show values oci://ghcr.io/niklasbeierl/foip-operator --version <version>
+helm show values oci://ghcr.io/thorion3006/foip-operator --version <version>
 ```
 
 ### 4. Create a FailoverIp resource (Optional)

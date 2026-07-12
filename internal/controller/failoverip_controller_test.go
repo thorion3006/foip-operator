@@ -18,67 +18,248 @@ package controller
 
 import (
 	"context"
+	"testing"
 
-	. "github.com/onsi/ginkgo/v2"
-	. "github.com/onsi/gomega"
-	"k8s.io/apimachinery/pkg/api/errors"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	netcupv1 "github.com/niklasbeierl/foip-operator/api/v1"
 )
 
-var _ = Describe("FailoverIp Controller", func() {
-	Context("When reconciling a resource", func() {
-		const resourceName = "test-resource"
+type fakeFailoverIPClient struct {
+	findFOIPID  int
+	serverID    int
+	routeTarget int
+	findErr     error
+	routeErr    error
+	routeCalled bool
+}
 
-		ctx := context.Background()
+func (f *fakeFailoverIPClient) FindFailoverIP(context.Context, string) (int, int, error) {
+	return f.findFOIPID, f.serverID, f.findErr
+}
 
-		typeNamespacedName := types.NamespacedName{
+func (f *fakeFailoverIPClient) RouteFailoverIP(context.Context, int, int) error {
+	f.routeCalled = true
+	if f.routeErr == nil && f.routeTarget != 0 {
+		f.serverID = f.routeTarget
+	}
+	return f.routeErr
+}
+
+func TestFailoverIpReconciler_SelectsNodeAndUpdatesStatus(t *testing.T) {
+	t.Helper()
+
+	const (
+		resourceName = "test-resource"
+		namespace    = "default"
+		nodeName     = "node-1"
+		secretName   = "netcup-scp-credentials"
+		failoverIP   = "1.2.3.4"
+		serverID     = "12345"
+		macAddress   = "de:ad:be:ef:00:01"
+	)
+
+	ctx := context.Background()
+	fakeClient := &fakeFailoverIPClient{findFOIPID: 17, serverID: 0}
+	originalNewFailoverIPClient := newFailoverIPClient
+	newFailoverIPClient = func(int, string) failoverIPClient {
+		return fakeClient
+	}
+	t.Cleanup(func() {
+		newFailoverIPClient = originalNewFailoverIPClient
+	})
+
+	resource := &netcupv1.FailoverIp{
+		ObjectMeta: metav1.ObjectMeta{
 			Name:      resourceName,
-			Namespace: "default", // TODO(user):Modify as needed
-		}
-		failoverip := &netcupv1.FailoverIp{}
-
-		BeforeEach(func() {
-			By("creating the custom resource for the Kind FailoverIp")
-			err := k8sClient.Get(ctx, typeNamespacedName, failoverip)
-			if err != nil && errors.IsNotFound(err) {
-				resource := &netcupv1.FailoverIp{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      resourceName,
-						Namespace: "default",
-					},
-					// TODO(user): Specify other spec details if needed.
-				}
-				Expect(k8sClient.Create(ctx, resource)).To(Succeed())
-			}
-		})
-
-		AfterEach(func() {
-			// TODO(user): Cleanup logic after each test, like removing the resource instance.
-			resource := &netcupv1.FailoverIp{}
-			err := k8sClient.Get(ctx, typeNamespacedName, resource)
-			Expect(err).NotTo(HaveOccurred())
-
-			By("Cleanup the specific resource instance FailoverIp")
-			Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
-		})
-		It("should successfully reconcile the resource", func() {
-			By("Reconciling the created resource")
-			controllerReconciler := &FailoverIpReconciler{
-				Client: k8sClient,
-				Scheme: k8sClient.Scheme(),
-			}
-
-			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
-				NamespacedName: typeNamespacedName,
-			})
-			Expect(err).NotTo(HaveOccurred())
-			// TODO(user): Add more specific assertions depending on your controller's reconciliation logic.
-			// Example: If you expect a certain status condition after reconciliation, verify it here.
+			Namespace: namespace,
+		},
+		Spec: netcupv1.FailoverIpSpec{
+			IP:         failoverIP,
+			SecretName: secretName,
+		},
+	}
+	if err := k8sClient.Create(ctx, resource); err != nil {
+		t.Fatalf("create failoverip: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = k8sClient.Delete(ctx, &netcupv1.FailoverIp{
+			ObjectMeta: metav1.ObjectMeta{Name: resourceName, Namespace: namespace},
 		})
 	})
-})
+
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      secretName,
+			Namespace: namespace,
+		},
+		Data: map[string][]byte{
+			"userId":       []byte("42"),
+			"refreshToken": []byte("refresh-token"),
+		},
+	}
+	if err := k8sClient.Create(ctx, secret); err != nil {
+		t.Fatalf("create secret: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = k8sClient.Delete(ctx, &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Name: secretName, Namespace: namespace},
+		})
+	})
+
+	node := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: nodeName,
+			Annotations: map[string]string{
+				netcupv1.ServerIDAnnotation: serverID,
+				netcupv1.MACAnnotation:      macAddress,
+			},
+		},
+	}
+	if err := k8sClient.Create(ctx, node); err != nil {
+		t.Fatalf("create node: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = k8sClient.Delete(ctx, &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: nodeName}})
+	})
+
+	controllerReconciler := &FailoverIpReconciler{
+		Client:    k8sClient,
+		APIReader: k8sClient,
+		Scheme:    k8sClient.Scheme(),
+	}
+
+	_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+		NamespacedName: types.NamespacedName{Name: resourceName, Namespace: namespace},
+	})
+	if err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+	if fakeClient.routeCalled {
+		t.Fatalf("route client should not have been called during target selection")
+	}
+
+	var updated netcupv1.FailoverIp
+	if err := k8sClient.Get(ctx, types.NamespacedName{Name: resourceName, Namespace: namespace}, &updated); err != nil {
+		t.Fatalf("get updated failoverip: %v", err)
+	}
+	if updated.Status.DesiredNode != nodeName {
+		t.Fatalf("desiredNode = %q, want %q", updated.Status.DesiredNode, nodeName)
+	}
+	if updated.Status.PreparedNode != "" {
+		t.Fatalf("preparedNode = %q, want empty", updated.Status.PreparedNode)
+	}
+}
+
+func TestFailoverIpReconciler_CompletesMakeBeforeBreakHandoff(t *testing.T) {
+	t.Helper()
+
+	const (
+		resourceName = "handoff-resource"
+		namespace    = "default"
+		nodeName     = "node-1"
+		secretName   = "netcup-scp-credentials"
+		failoverIP   = "1.2.3.4"
+		serverID     = "12345"
+		macAddress   = "de:ad:be:ef:00:01"
+	)
+
+	ctx := context.Background()
+	fakeClient := &fakeFailoverIPClient{findFOIPID: 17, serverID: 0, routeTarget: 12345}
+	originalNewFailoverIPClient := newFailoverIPClient
+	newFailoverIPClient = func(int, string) failoverIPClient {
+		return fakeClient
+	}
+	t.Cleanup(func() {
+		newFailoverIPClient = originalNewFailoverIPClient
+	})
+
+	resource := &netcupv1.FailoverIp{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      resourceName,
+			Namespace: namespace,
+		},
+		Spec: netcupv1.FailoverIpSpec{
+			IP:         failoverIP,
+			SecretName: secretName,
+		},
+		Status: netcupv1.FailoverIpStatus{
+			DesiredNode:  nodeName,
+			PreparedNode: nodeName,
+			AssignedNode: "",
+		},
+	}
+	if err := k8sClient.Create(ctx, resource); err != nil {
+		t.Fatalf("create failoverip: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = k8sClient.Delete(ctx, &netcupv1.FailoverIp{
+			ObjectMeta: metav1.ObjectMeta{Name: resourceName, Namespace: namespace},
+		})
+	})
+
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      secretName,
+			Namespace: namespace,
+		},
+		Data: map[string][]byte{
+			"userId":       []byte("42"),
+			"refreshToken": []byte("refresh-token"),
+		},
+	}
+	if err := k8sClient.Create(ctx, secret); err != nil {
+		t.Fatalf("create secret: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = k8sClient.Delete(ctx, &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Name: secretName, Namespace: namespace},
+		})
+	})
+
+	node := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: nodeName,
+			Annotations: map[string]string{
+				netcupv1.ServerIDAnnotation: serverID,
+				netcupv1.MACAnnotation:      macAddress,
+			},
+		},
+	}
+	if err := k8sClient.Create(ctx, node); err != nil {
+		t.Fatalf("create node: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = k8sClient.Delete(ctx, &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: nodeName}})
+	})
+
+	controllerReconciler := &FailoverIpReconciler{
+		Client:    k8sClient,
+		APIReader: k8sClient,
+		Scheme:    k8sClient.Scheme(),
+	}
+
+	_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+		NamespacedName: types.NamespacedName{Name: resourceName, Namespace: namespace},
+	})
+	if err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+	if !fakeClient.routeCalled {
+		t.Fatalf("route client should have been called for committed handoff")
+	}
+
+	var updated netcupv1.FailoverIp
+	if err := k8sClient.Get(ctx, types.NamespacedName{Name: resourceName, Namespace: namespace}, &updated); err != nil {
+		t.Fatalf("get updated failoverip: %v", err)
+	}
+	if updated.Status.AssignedNode != nodeName {
+		t.Fatalf("assignedNode = %q, want %q", updated.Status.AssignedNode, nodeName)
+	}
+	if updated.Status.LastSyncSuccess == "" {
+		t.Fatalf("lastSyncSuccess = empty, want timestamp")
+	}
+}

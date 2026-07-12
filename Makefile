@@ -9,10 +9,8 @@ GOBIN=$(shell go env GOBIN)
 endif
 
 # CONTAINER_TOOL defines the container tool to be used for building images.
-# Be aware that the target commands are only tested with Docker which is
-# scaffolded by default. However, you might want to replace it to use other
-# tools. (i.e. podman)
-CONTAINER_TOOL ?= docker
+# Prefer rootless-podman when available, then Podman, then Docker.
+CONTAINER_TOOL ?= $(shell if command -v rootless-podman >/dev/null 2>&1; then echo rootless-podman; elif command -v podman >/dev/null 2>&1; then echo podman; elif command -v docker >/dev/null 2>&1; then echo docker; fi)
 
 # Setting SHELL to bash allows bash commands to be executed by recipes.
 # Options are set to exit when a recipe line exits non-zero or a piped command fails.
@@ -47,8 +45,8 @@ vet: ## Run go vet against code.
 	go vet ./...
 
 .PHONY: test
-test: manifests generate fmt vet setup-envtest ## Run tests.
-	KUBEBUILDER_ASSETS="$(shell "$(ENVTEST)" use $(ENVTEST_K8S_VERSION) --bin-dir "$(LOCALBIN)" -p path)" go test $$(go list ./... | grep -v /e2e) -coverprofile cover.out
+test: manifests generate fmt vet ## Run tests.
+	go test $$(go list ./... | grep -v /e2e) -coverprofile cover.out
 
 KIND_CLUSTER ?= foip-operator-test-e2e
 
@@ -115,20 +113,34 @@ run-node-interface: manifests generate fmt vet ## Run the node-interface control
 
 .PHONY: docker-build
 docker-build: ## Build docker image with the manager.
-	$(CONTAINER_TOOL) build -t ${IMG} .
+	$(PODMAN_ENV_PREFIX) $(CONTAINER_TOOL) build $(PODMAN_TIMESTAMP_FLAG) \
+		--build-arg VERSION=$(VERSION) \
+		--build-arg VCS_REF=$(VCS_REF) \
+		--build-arg BUILD_DATE=$(BUILD_DATE) \
+		-t ${IMG} .
 
 .PHONY: docker-push
 docker-push: ## Push docker image with the manager.
 	$(CONTAINER_TOOL) push ${IMG}
 
 PLATFORMS ?= linux/arm64,linux/amd64,linux/s390x,linux/ppc64le
+VERSION ?= $(shell git describe --tags --dirty --always 2>/dev/null || echo unknown)
+VCS_REF ?= $(shell git rev-parse HEAD 2>/dev/null || echo unknown)
+BUILD_TIMESTAMP ?= $(shell git log -1 --format=%ct 2>/dev/null || date +%s)
+BUILD_DATE ?= $(shell date -u -d "@$(BUILD_TIMESTAMP)" +%Y-%m-%dT%H:%M:%SZ)
+PODMAN_ENV_PREFIX ?= $(shell if [ "$(CONTAINER_TOOL)" = "rootless-podman" ] || [ "$(CONTAINER_TOOL)" = "podman" ]; then printf '%s' 'env -u SOURCE_DATE_EPOCH'; fi)
+PODMAN_TIMESTAMP_FLAG ?= $(shell if [ "$(CONTAINER_TOOL)" = "rootless-podman" ] || [ "$(CONTAINER_TOOL)" = "podman" ]; then printf '%s %s' --timestamp "$(BUILD_TIMESTAMP)"; fi)
 .PHONY: docker-buildx
 docker-buildx: ## Build and push docker image for the manager for cross-platform support
 	sed -e '1 s/\(^FROM\)/FROM --platform=\$$\{BUILDPLATFORM\}/; t' -e ' 1,// s//FROM --platform=\$$\{BUILDPLATFORM\}/' Dockerfile > Dockerfile.cross
-	- $(CONTAINER_TOOL) buildx create --name foip-operator-builder
-	$(CONTAINER_TOOL) buildx use foip-operator-builder
-	- $(CONTAINER_TOOL) buildx build --push --platform=$(PLATFORMS) --tag ${IMG} -f Dockerfile.cross .
-	- $(CONTAINER_TOOL) buildx rm foip-operator-builder
+	- $(PODMAN_ENV_PREFIX) $(CONTAINER_TOOL) buildx create --name foip-operator-builder
+	$(PODMAN_ENV_PREFIX) $(CONTAINER_TOOL) buildx use foip-operator-builder
+	- $(PODMAN_ENV_PREFIX) $(CONTAINER_TOOL) buildx build $(PODMAN_TIMESTAMP_FLAG) \
+		--build-arg VERSION=$(VERSION) \
+		--build-arg VCS_REF=$(VCS_REF) \
+		--build-arg BUILD_DATE=$(BUILD_DATE) \
+		--push --platform=$(PLATFORMS) --tag ${IMG} -f Dockerfile.cross .
+	- $(PODMAN_ENV_PREFIX) $(CONTAINER_TOOL) buildx rm foip-operator-builder
 	rm Dockerfile.cross
 
 .PHONY: build-installer
@@ -163,6 +175,10 @@ undeploy: kustomize ## Undeploy controller from the K8s cluster specified in ~/.
 ##@ Dependencies
 
 LOCALBIN ?= $(shell pwd)/bin
+GOCACHE ?= $(LOCALBIN)/go-build-cache
+GOLANGCI_LINT_CACHE ?= $(LOCALBIN)/golangci-lint-cache
+export GOLANGCI_LINT_CACHE
+export GOCACHE
 $(LOCALBIN):
 	mkdir -p "$(LOCALBIN)"
 

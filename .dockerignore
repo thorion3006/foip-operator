@@ -6,6 +6,18 @@
 !**/*.go
 **/*_test.go
 
+# Re-include the directory structure needed for package paths.
+!cmd/
+!cmd/**
+!api/
+!api/**
+!internal/
+!internal/**
+!test/
+!test/**
+!hack/
+!hack/**
+
 # Re-include Go module files
 !go.mod
 !go.sum

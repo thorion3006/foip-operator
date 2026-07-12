@@ -38,10 +38,10 @@ import (
 )
 
 const (
-	defaultRequeueTime       = 24 * time.Hour
-	preparationPollInterval  = 2 * time.Second
-	providerVerifyInterval   = 2 * time.Second
-	providerVerifyAttempts   = 15
+	defaultRequeueTime      = 24 * time.Hour
+	preparationPollInterval = 2 * time.Second
+	providerVerifyInterval  = 2 * time.Second
+	providerVerifyAttempts  = 15
 )
 
 // FailoverIpReconciler implements a two-phase, make-before-break handoff:
@@ -55,6 +55,15 @@ type FailoverIpReconciler struct {
 	APIReader client.Reader
 
 	requeueAfter time.Duration
+}
+
+type failoverIPClient interface {
+	FindFailoverIP(ctx context.Context, ip string) (foipID int, serverID int, err error)
+	RouteFailoverIP(ctx context.Context, foipID, targetServerID int) error
+}
+
+var newFailoverIPClient = func(userID int, refreshToken string) failoverIPClient {
+	return netcup.New(userID, refreshToken)
 }
 
 // +kubebuilder:rbac:groups=foip.noshoes.xyz,resources=failoverips,verbs=get;list;watch;update;patch
@@ -83,7 +92,7 @@ func (r *FailoverIpReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		return ctrl.Result{}, fmt.Errorf("secret %s: userId is not an integer: %w", foip.Spec.SecretName, err)
 	}
 
-	nc := netcup.New(userID, refreshToken)
+	nc := newFailoverIPClient(userID, refreshToken)
 	foipID, currentServerID, err := nc.FindFailoverIP(ctx, foip.Spec.IP)
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("findFailoverIP: %w", err)
@@ -147,7 +156,7 @@ func (r *FailoverIpReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	// Netcup operations are asynchronous. Re-read the authoritative provider
 	// state before advancing assignedNode and allowing stale-owner cleanup.
 	verified := false
-	for attempt := 0; attempt < providerVerifyAttempts; attempt++ {
+	for range providerVerifyAttempts {
 		_, observedServerID, verifyErr := nc.FindFailoverIP(ctx, foip.Spec.IP)
 		if verifyErr != nil {
 			return ctrl.Result{}, fmt.Errorf("verifying failover route: %w", verifyErr)

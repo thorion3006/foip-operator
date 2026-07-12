@@ -7,7 +7,7 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE: ghcr.io/niklasbeierl/foip-operator/operator
+  IMAGE: ghcr.io/thorion3006/foip-operator/operator
 
 jobs:
   release:
@@ -16,6 +16,9 @@ jobs:
     permissions:
       contents: read
       packages: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
 
     steps:
       - name: Checkout
@@ -26,10 +29,6 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Extract version
-        id: version
-        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
-
       - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
@@ -37,14 +36,48 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Collect build metadata
+        id: meta
+        run: |
+          echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          epoch=$(git log -1 --format=%ct)
+          echo "timestamp=$epoch" >> "$GITHUB_OUTPUT"
+          echo "created=$(date -u -d "@$epoch" +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
       - name: Build and push image
+        id: build-and-push
         uses: docker/build-push-action@v6
+        env:
+          SOURCE_DATE_EPOCH: ${{ steps.meta.outputs.timestamp }}
         with:
           context: .
           push: true
           tags: |
-            ${{ env.IMAGE }}:${{ steps.version.outputs.version }}
+            ${{ env.IMAGE }}:${{ steps.meta.outputs.version }}
             ${{ env.IMAGE }}:latest
+          build-args: |
+            VERSION=${{ steps.meta.outputs.version }}
+            VCS_REF=${{ github.sha }}
+            BUILD_DATE=${{ steps.meta.outputs.created }}
+          sbom: true
+
+      - name: Attest image provenance
+        uses: actions/attest@v4
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.build-and-push.outputs.digest }}
+          push-to-registry: true
+          create-storage-record: false
+
+      - name: Sign image digest
+        env:
+          DIGEST: ${{ steps.build-and-push.outputs.digest }}
+          IMAGE: ${{ env.IMAGE }}
+        run: |
+          cosign sign --yes "${IMAGE}@${DIGEST}"
 
       - name: Install Helm
         uses: azure/setup-helm@v4
@@ -52,8 +85,8 @@ jobs:
       - name: Package and push chart
         run: |
           helm package charts/foip-operator \
-            --version ${{ steps.version.outputs.version }} \
-            --app-version ${{ steps.version.outputs.version }} \
+            --version ${{ steps.meta.outputs.version }} \
+            --app-version ${{ steps.meta.outputs.version }} \
             --destination dist/
-          helm push dist/foip-operator-${{ steps.version.outputs.version }}.tgz \
-            oci://${{ env.REGISTRY }}/niklasbeierl
+          helm push dist/foip-operator-${{ steps.meta.outputs.version }}.tgz \
+            oci://${{ env.REGISTRY }}/thorion3006
