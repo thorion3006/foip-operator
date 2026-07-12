@@ -13,6 +13,12 @@ rules:
   - list
   - watch
 - apiGroups:
+  - ""
+  resources:
+  - secrets
+  verbs:
+  - get
+- apiGroups:
   - foip.noshoes.xyz
   resources:
   - failoverips
@@ -20,3 +26,13 @@ rules:
   - get
   - list
   - watch
+  - patch
+  - update
+- apiGroups:
+  - foip.noshoes.xyz
+  resources:
+  - failoverips/status
+  verbs:
+  - get
+  - patch
+  - update
