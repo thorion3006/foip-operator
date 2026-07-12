@@ -7,7 +7,7 @@ domain: foip.noshoes.xyz
 layout:
 - go.kubebuilder.io/v4
 projectName: foip-operator
-repo: github.com/niklasbeierl/foip-operator
+repo: github.com/thorion3006/foip-operator
 resources:
 - api:
     crdVersion: v1
@@ -16,6 +16,6 @@ resources:
   domain: foip.noshoes.xyz
   group: netcup
   kind: FailoverIp
-  path: github.com/niklasbeierl/foip-operator/api/v1
+  path: github.com/thorion3006/foip-operator/api/v1
   version: v1
 version: "3"

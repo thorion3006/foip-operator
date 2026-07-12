@@ -28,7 +28,7 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
-	netcupv1 "github.com/niklasbeierl/foip-operator/api/v1"
+	netcupv1 "github.com/thorion3006/foip-operator/api/v1"
 )
 
 var k8sClient client.Client

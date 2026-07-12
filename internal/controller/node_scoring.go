@@ -19,7 +19,7 @@ package controller
 import (
 	corev1 "k8s.io/api/core/v1"
 
-	netcupv1 "github.com/niklasbeierl/foip-operator/api/v1"
+	netcupv1 "github.com/thorion3006/foip-operator/api/v1"
 )
 
 // nodeScore captures the health issues of a node in priority order.

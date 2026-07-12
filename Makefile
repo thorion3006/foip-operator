@@ -126,7 +126,7 @@ docker-push: ## Push docker image with the manager.
 PLATFORMS ?= linux/arm64,linux/amd64,linux/s390x,linux/ppc64le
 VERSION ?= $(shell git describe --tags --dirty --always 2>/dev/null || echo unknown)
 VCS_REF ?= $(shell git rev-parse HEAD 2>/dev/null || echo unknown)
-BUILD_TIMESTAMP ?= $(shell git log -1 --format=%ct 2>/dev/null || date +%s)
+BUILD_TIMESTAMP ?= $(shell git show -s --no-show-signature --format=%ct HEAD 2>/dev/null || date +%s)
 BUILD_DATE ?= $(shell date -u -d "@$(BUILD_TIMESTAMP)" +%Y-%m-%dT%H:%M:%SZ)
 PODMAN_ENV_PREFIX ?= $(shell if [ "$(CONTAINER_TOOL)" = "rootless-podman" ] || [ "$(CONTAINER_TOOL)" = "podman" ]; then printf '%s' 'env -u SOURCE_DATE_EPOCH'; fi)
 PODMAN_TIMESTAMP_FLAG ?= $(shell if [ "$(CONTAINER_TOOL)" = "rootless-podman" ] || [ "$(CONTAINER_TOOL)" = "podman" ]; then printf '%s %s' --timestamp "$(BUILD_TIMESTAMP)"; fi)

@@ -31,8 +31,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
-	netcupv1 "github.com/niklasbeierl/foip-operator/api/v1"
-	"github.com/niklasbeierl/foip-operator/internal/controller"
+	netcupv1 "github.com/thorion3006/foip-operator/api/v1"
+	"github.com/thorion3006/foip-operator/internal/controller"
 )
 
 var (

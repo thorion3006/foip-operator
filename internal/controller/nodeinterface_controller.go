@@ -35,7 +35,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	netcupv1 "github.com/niklasbeierl/foip-operator/api/v1"
+	netcupv1 "github.com/thorion3006/foip-operator/api/v1"
 )
 
 // NodeInterfaceReconciler runs on every node and reconciles local ownership of

@@ -8,6 +8,19 @@ that each node's network interface is configured to receive traffic for the fail
 Built in Go using [kubebuilder](https://book.kubebuilder.io/) and the 
 [netcup SCP REST API](https://www.netcup.com/en/helpcenter/documentation/servercontrolpanel/api).
 
+This repository is a fork of [niklasbeierl/foip-operator](https://github.com/niklasbeierl/foip-operator).
+Thanks to Niklas Beierl for the original project.
+
+## Fork Differences
+
+Compared with the original repository, this fork currently:
+
+- Uses a make-before-break failover flow so the target node prepares before the route moves
+- Builds a smaller `scratch` runtime image with CA certificates copied in
+- Adds OCI image metadata, SBOM generation, provenance attestation, and cosign signing in the release workflow
+- Prefers `rootless-podman`, then `podman`, then `docker` for local image builds
+- Keeps the controller RBAC and manifests aligned with the current controllers and status updates
+
 ## Motivation
 
 I wanted a single point of contact for a cluster hosted in netcup, without adding extra 

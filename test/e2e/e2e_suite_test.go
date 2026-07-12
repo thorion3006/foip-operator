@@ -28,7 +28,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	"github.com/niklasbeierl/foip-operator/test/utils"
+	"github.com/thorion3006/foip-operator/test/utils"
 )
 
 var (

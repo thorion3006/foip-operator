@@ -1,4 +1,4 @@
-module github.com/niklasbeierl/foip-operator
+module github.com/thorion3006/foip-operator
 
 go 1.25.3
 

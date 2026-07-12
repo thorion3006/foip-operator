@@ -33,8 +33,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	netcupv1 "github.com/niklasbeierl/foip-operator/api/v1"
-	"github.com/niklasbeierl/foip-operator/internal/netcup"
+	netcupv1 "github.com/thorion3006/foip-operator/api/v1"
+	"github.com/thorion3006/foip-operator/internal/netcup"
 )
 
 const (
