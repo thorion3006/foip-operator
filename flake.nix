@@ -34,6 +34,9 @@
               ko
               skopeo
 
+              direnv
+              nix-direnv
+
               git
               gnumake
               jq
