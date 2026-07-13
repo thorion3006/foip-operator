@@ -190,14 +190,18 @@ jobs:
         run: |
           amd64_digest=$(cat digests/amd64-digest/amd64.digest)
           arm64_digest=$(cat digests/arm64-digest/arm64.digest)
-          manifest_ref=$(docker buildx imagetools create \
+          manifest_output=$(docker buildx imagetools create \
             --tag "${IMAGE}:${{ needs.prepare.outputs.version }}" \
             --tag "${IMAGE}:latest" \
             "${IMAGE}@${amd64_digest}" \
-            "${IMAGE}@${arm64_digest}" | tail -n1)
-          manifest_digest=${manifest_ref##*@}
-          manifest_digest=${manifest_digest#sha256:}
-          echo "digest=sha256:${manifest_digest}" >> "$GITHUB_OUTPUT"
+            "${IMAGE}@${arm64_digest}" 2>&1)
+          manifest_digest=$(printf '%s\n' "$manifest_output" | grep -oE 'sha256:[a-f0-9]{64}' | tail -n1)
+          if [ -z "$manifest_digest" ]; then
+            printf '%s\n' "$manifest_output" >&2
+            echo "Failed to determine manifest digest" >&2
+            exit 1
+          fi
+          echo "digest=$manifest_digest" >> "$GITHUB_OUTPUT"
 
       - name: Generate SBOM
         uses: anchore/sbom-action@v0

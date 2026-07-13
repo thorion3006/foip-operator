@@ -43,6 +43,7 @@
 
               direnv
               nix-direnv
+              act
 
               git
               gnumake
@@ -67,6 +68,7 @@
               echo "  make test"
               echo "  make lint"
               echo "  make helm-lint"
+              echo "  act"
             '';
           };
         });
