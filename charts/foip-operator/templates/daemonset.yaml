@@ -41,6 +41,7 @@ spec:
         command: [/node-interface]
         args:
           - --health-probe-bind-address=:8082
+          - --metrics-bind-address={{ include "foip-operator.metricsBindAddress" . }}
         securityContext:
           capabilities:
             add: [NET_ADMIN]
@@ -49,6 +50,9 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: spec.nodeName
+{{- if and .Values.observability.traces.enabled .Values.observability.otlp.endpoint }}
+{{ include "foip-operator.observabilityEnv" (dict "root" . "component" "node-interface") | nindent 8 }}
+{{- end }}
         livenessProbe:
           httpGet:
             path: /healthz

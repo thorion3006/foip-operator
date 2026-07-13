@@ -63,3 +63,12 @@ nodeInterface:
   nodeSelector: {}
   tolerations: []
   affinity: {}
+
+observability:
+  metrics:
+    enabled: true
+  traces:
+    enabled: true
+  otlp:
+    endpoint: ""
+    insecure: true

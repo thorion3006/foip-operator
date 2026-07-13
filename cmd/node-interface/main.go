@@ -20,6 +20,7 @@ limitations under the License.
 package main
 
 import (
+	"context"
 	"flag"
 	"os"
 
@@ -35,6 +36,7 @@ import (
 
 	netcupv1 "github.com/thorion3006/foip-operator/api/v1"
 	"github.com/thorion3006/foip-operator/internal/controller"
+	"github.com/thorion3006/foip-operator/internal/observability"
 )
 
 var (
@@ -59,6 +61,19 @@ func main() {
 	flag.Parse()
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
+
+	shutdown, err := observability.Setup(context.Background(), observability.Config{
+		ServiceName: "foip-operator-node-interface",
+		Component:   "node-interface",
+	})
+	if err != nil {
+		setupLog.Error(err, "Failed to configure observability")
+		os.Exit(1)
+	}
+	defer func() {
+		_ = shutdown(context.Background())
+	}()
+	setupLog = observability.Logger(context.Background(), ctrl.Log.WithName("setup"))
 
 	nodeName := os.Getenv("NODE_NAME")
 	if nodeName == "" {

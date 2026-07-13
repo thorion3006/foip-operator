@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -35,6 +36,7 @@ import (
 
 	netcupv1 "github.com/thorion3006/foip-operator/api/v1"
 	"github.com/thorion3006/foip-operator/internal/netcup"
+	"github.com/thorion3006/foip-operator/internal/observability"
 )
 
 const (
@@ -70,8 +72,26 @@ var newFailoverIPClient = func(userID int, refreshToken string) failoverIPClient
 // +kubebuilder:rbac:groups=foip.noshoes.xyz,resources=failoverips/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get
-func (r *FailoverIpReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	log := logf.FromContext(ctx)
+func (r *FailoverIpReconciler) Reconcile(ctx context.Context, req ctrl.Request) (res ctrl.Result, err error) {
+	start := time.Now()
+	ctx, span := observability.StartSpan(ctx, "foip-operator.failoverip", "Reconcile",
+		attribute.String("k8s.namespace", req.Namespace),
+		attribute.String("k8s.name", req.Name),
+	)
+	defer func() {
+		observability.RecordSpanError(span, err)
+		span.End()
+		result := "success"
+		switch {
+		case err != nil:
+			result = "error"
+		case res.RequeueAfter > 0:
+			result = "requeue_after"
+		}
+		observability.ObserveReconcile("failoverip", result, time.Since(start))
+	}()
+
+	log := observability.Logger(ctx, logf.FromContext(ctx))
 
 	var foip netcupv1.FailoverIp
 	if err := r.Get(ctx, req.NamespacedName, &foip); err != nil {
@@ -79,9 +99,12 @@ func (r *FailoverIpReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	}
 
 	var secret corev1.Secret
+	secretStart := time.Now()
 	if err := r.APIReader.Get(ctx, types.NamespacedName{Name: foip.Spec.SecretName, Namespace: req.Namespace}, &secret); err != nil {
+		observability.ObserveProviderCall("kubernetes", "get_secret", time.Since(secretStart), err)
 		return ctrl.Result{}, fmt.Errorf("fetching secret %s: %w", foip.Spec.SecretName, err)
 	}
+	observability.ObserveProviderCall("kubernetes", "get_secret", time.Since(secretStart), nil)
 	refreshToken := string(secret.Data["refreshToken"])
 	userIDStr := string(secret.Data["userId"])
 	if refreshToken == "" || userIDStr == "" {
@@ -93,7 +116,9 @@ func (r *FailoverIpReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	}
 
 	nc := newFailoverIPClient(userID, refreshToken)
+	findStart := time.Now()
 	foipID, currentServerID, err := nc.FindFailoverIP(ctx, foip.Spec.IP)
+	observability.ObserveProviderCall("netcup", "find_failover_ip", time.Since(findStart), err)
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("findFailoverIP: %w", err)
 	}
@@ -141,6 +166,7 @@ func (r *FailoverIpReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	}
 
 	if currentServerID != targetServerID {
+		handoffStart := time.Now()
 		patch := client.MergeFrom(foip.DeepCopy())
 		foip.Status.LastSyncAttempt = time.Now().UTC().Format(time.RFC3339)
 		if err := r.Status().Patch(ctx, &foip, patch); err != nil {
@@ -148,33 +174,39 @@ func (r *FailoverIpReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		}
 
 		log.Info("routing failover IP through Netcup", "ip", foip.Spec.IP, "serverID", targetServerID, "node", foip.Status.DesiredNode)
+		routeStart := time.Now()
 		if err := nc.RouteFailoverIP(ctx, foipID, targetServerID); err != nil {
+			observability.ObserveProviderCall("netcup", "route_failover_ip", time.Since(routeStart), err)
 			return ctrl.Result{}, fmt.Errorf("routeFailoverIP: %w", err)
 		}
-	}
+		observability.ObserveProviderCall("netcup", "route_failover_ip", time.Since(routeStart), nil)
 
-	// Netcup operations are asynchronous. Re-read the authoritative provider
-	// state before advancing assignedNode and allowing stale-owner cleanup.
-	verified := false
-	for range providerVerifyAttempts {
-		_, observedServerID, verifyErr := nc.FindFailoverIP(ctx, foip.Spec.IP)
-		if verifyErr != nil {
-			return ctrl.Result{}, fmt.Errorf("verifying failover route: %w", verifyErr)
+		// Netcup operations are asynchronous. Re-read the authoritative provider
+		// state before advancing assignedNode and allowing stale-owner cleanup.
+		verified := false
+		for range providerVerifyAttempts {
+			verifyStart := time.Now()
+			_, observedServerID, verifyErr := nc.FindFailoverIP(ctx, foip.Spec.IP)
+			observability.ObserveProviderCall("netcup", "verify_failover_ip", time.Since(verifyStart), verifyErr)
+			if verifyErr != nil {
+				return ctrl.Result{}, fmt.Errorf("verifying failover route: %w", verifyErr)
+			}
+			if observedServerID == targetServerID {
+				verified = true
+				break
+			}
+			select {
+			case <-ctx.Done():
+				return ctrl.Result{}, ctx.Err()
+			case <-time.After(providerVerifyInterval):
+			}
 		}
-		if observedServerID == targetServerID {
-			verified = true
-			break
+		if !verified {
+			// Keep both old and new local owners in place. This avoids breaking the
+			// old path while provider convergence is uncertain.
+			return ctrl.Result{}, fmt.Errorf("provider route did not converge to server %d; retaining old and new local ownership", targetServerID)
 		}
-		select {
-		case <-ctx.Done():
-			return ctrl.Result{}, ctx.Err()
-		case <-time.After(providerVerifyInterval):
-		}
-	}
-	if !verified {
-		// Keep both old and new local owners in place. This avoids breaking the
-		// old path while provider convergence is uncertain.
-		return ctrl.Result{}, fmt.Errorf("provider route did not converge to server %d; retaining old and new local ownership", targetServerID)
+		observability.ObserveHandoffDuration(time.Since(handoffStart))
 	}
 
 	patch := client.MergeFrom(foip.DeepCopy())

@@ -21,6 +21,7 @@ Compared with the original repository, this fork currently:
 - Adds OCI image metadata, SBOM generation, provenance attestation, and cosign signing in the release workflow
 - Prefers `rootless-podman`, then `podman`, then `docker` for local image builds
 - Keeps the controller RBAC and manifests aligned with the current controllers and status updates
+- Adds OpenTelemetry tracing hooks plus Prometheus-scrapable operational metrics for both controller binaries
 
 ## Motivation
 
@@ -213,6 +214,43 @@ spec:
     - 1.2.3.4
 # ...
 ```
+
+### Observability
+
+The operator exposes its operational metrics on the existing `/metrics` endpoint, so
+the controller Deployment can still be scraped by Prometheus through the bundled
+`ServiceMonitor`.
+
+Tracing is enabled through OpenTelemetry environment variables. Set an OTLP endpoint
+from your deployment tooling and the binaries will export spans automatically:
+
+```sh
+OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector.observability:4317
+OTEL_SERVICE_NAME=foip-operator-foip
+OTEL_RESOURCE_ATTRIBUTES=service.version=0.2.2,foip.component=foip
+```
+
+The Helm chart wires the service name and resource attributes by default for both
+the controller and node-interface workloads. If you deploy with the raw kustomize
+manifests, add the same environment variables to your pod specs.
+
+In the Helm chart you can also toggle observability features directly:
+
+```yaml
+observability:
+  metrics:
+    enabled: true
+  traces:
+    enabled: true
+  otlp:
+    endpoint: http://otel-collector.observability.svc.cluster.local:4317
+    insecure: true
+```
+
+- Set `observability.metrics.enabled: false` to stop binding the `/metrics` port.
+- Set `observability.traces.enabled: false` to skip OTLP export env wiring.
+- Point `observability.otlp.endpoint` at any collector you want, with `insecure`
+  controlling whether the chart injects `OTEL_EXPORTER_OTLP_INSECURE=true`.
 
 ## License
 

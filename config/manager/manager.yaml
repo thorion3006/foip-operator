@@ -63,6 +63,11 @@ spec:
         args:
           - --leader-elect
           - --health-probe-bind-address=:8081
+        env:
+        - name: OTEL_SERVICE_NAME
+          value: foip-operator-foip
+        - name: OTEL_RESOURCE_ATTRIBUTES
+          value: service.name=foip-operator-foip,service.namespace=foip-operator-system,k8s.namespace.name=foip-operator-system,foip.component=foip
         image: controller:latest
         name: controller
         ports: []

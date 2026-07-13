@@ -67,6 +67,21 @@ The default image is:
 ghcr.io/thorion3006/foip-operator/operator:0.2.2
 ```
 
+## Observability
+
+The manager Deployment and Helm chart expose Prometheus-scrapable metrics on
+`/metrics`. Traces are exported through OpenTelemetry when you provide an OTLP
+endpoint via environment variables such as `OTEL_EXPORTER_OTLP_ENDPOINT`.
+
+The chart sets `OTEL_SERVICE_NAME` and `OTEL_RESOURCE_ATTRIBUTES` for both the
+controller and node-interface workloads. For raw kustomize installs, patch the
+same env vars into `config/manager/manager.yaml` or your own overlay.
+
+The chart also exposes `observability.metrics.enabled` and
+`observability.traces.enabled` so you can switch off metrics or tracing without
+changing the application image. `observability.otlp.endpoint` and
+`observability.otlp.insecure` control the collector target.
+
 Package and publish Helm chart version `0.2.2`:
 
 ```bash

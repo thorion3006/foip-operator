@@ -21,8 +21,10 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"time"
 
 	"github.com/vishvananda/netlink"
+	"go.opentelemetry.io/otel/attribute"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -36,6 +38,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	netcupv1 "github.com/thorion3006/foip-operator/api/v1"
+	"github.com/thorion3006/foip-operator/internal/observability"
 )
 
 // NodeInterfaceReconciler runs on every node and reconciles local ownership of
@@ -53,8 +56,27 @@ type NodeInterfaceReconciler struct {
 // +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get
 
-func (r *NodeInterfaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	log := logf.FromContext(ctx)
+func (r *NodeInterfaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (res ctrl.Result, err error) {
+	start := time.Now()
+	ctx, span := observability.StartSpan(ctx, "foip-operator.nodeinterface", "Reconcile",
+		attribute.String("k8s.namespace", req.Namespace),
+		attribute.String("k8s.name", req.Name),
+		attribute.String("node.name", r.NodeName),
+	)
+	defer func() {
+		observability.RecordSpanError(span, err)
+		span.End()
+		result := "success"
+		switch {
+		case err != nil:
+			result = "error"
+		case res.RequeueAfter > 0:
+			result = "requeue_after"
+		}
+		observability.ObserveReconcile("nodeinterface", result, time.Since(start))
+	}()
+
+	log := observability.Logger(ctx, logf.FromContext(ctx))
 
 	var foip netcupv1.FailoverIp
 	if err := r.Get(ctx, req.NamespacedName, &foip); err != nil {
@@ -73,9 +95,12 @@ func (r *NodeInterfaceReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 
 	shouldOwn := r.NodeName == foip.Status.DesiredNode || r.NodeName == foip.Status.AssignedNode
 	if shouldOwn {
+		assignStart := time.Now()
 		if err := ensureIPAssigned(mac, foip.Spec.IP); err != nil {
+			observability.ObserveInterfaceOperation("nodeinterface", "assign", time.Since(assignStart), err)
 			return ctrl.Result{}, fmt.Errorf("assigning %s to interface with MAC %s: %w", foip.Spec.IP, mac, err)
 		}
+		observability.ObserveInterfaceOperation("nodeinterface", "assign", time.Since(assignStart), nil)
 		log.Info("failover IP present on local interface", "ip", foip.Spec.IP, "mac", mac)
 
 		// Only the desired node reports preparation. This is the controller's
@@ -90,10 +115,13 @@ func (r *NodeInterfaceReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, nil
 	}
 
+	removeStart := time.Now()
 	removed, err := ensureIPRemoved(mac, foip.Spec.IP)
 	if err != nil {
+		observability.ObserveInterfaceOperation("nodeinterface", "remove", time.Since(removeStart), err)
 		return ctrl.Result{}, fmt.Errorf("removing stale %s from interface with MAC %s: %w", foip.Spec.IP, mac, err)
 	}
+	observability.ObserveInterfaceOperation("nodeinterface", "remove", time.Since(removeStart), nil)
 	if removed {
 		log.Info("removed stale failover IP from local interface", "ip", foip.Spec.IP, "mac", mac)
 	}

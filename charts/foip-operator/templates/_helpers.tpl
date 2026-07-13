@@ -76,3 +76,35 @@ Image reference
 {{- define "foip-operator.image" -}}
 {{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}
 {{- end }}
+
+{{/*
+Metrics bind address
+*/}}
+{{- define "foip-operator.metricsBindAddress" -}}
+{{- if .Values.observability.metrics.enabled -}}
+:8443
+{{- else -}}
+0
+{{- end -}}
+{{- end }}
+
+{{/*
+Observability environment variables
+*/}}
+{{- define "foip-operator.observabilityEnv" -}}
+{{- if and .Values.observability.traces.enabled .Values.observability.otlp.endpoint -}}
+{{- $root := .root -}}
+{{- $component := .component -}}
+{{- $serviceName := default (printf "%s-%s" (include "foip-operator.fullname" $root) $component) $root.Values.observability.serviceName -}}
+- name: OTEL_SERVICE_NAME
+  value: {{ $serviceName | quote }}
+- name: OTEL_RESOURCE_ATTRIBUTES
+  value: {{ printf "service.name=%s,service.namespace=%s,service.version=%s,k8s.namespace.name=%s,foip.component=%s" $serviceName $root.Release.Namespace $root.Chart.AppVersion $root.Release.Namespace $component | quote }}
+{{- with $root.Values.observability.otlp.endpoint }}
+- name: OTEL_EXPORTER_OTLP_ENDPOINT
+  value: {{ . | quote }}
+- name: OTEL_EXPORTER_OTLP_INSECURE
+  value: {{ ternary "true" "false" $root.Values.observability.otlp.insecure | quote }}
+{{- end }}
+{{- end }}
+{{- end }}
