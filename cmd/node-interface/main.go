@@ -31,6 +31,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	netcupv1 "github.com/thorion3006/foip-operator/api/v1"
 	"github.com/thorion3006/foip-operator/internal/controller"
@@ -67,6 +68,7 @@ func main() {
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                 scheme,
+		Metrics:                metricsserver.Options{BindAddress: metricsAddr, SecureServing: true},
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         false,
 	})

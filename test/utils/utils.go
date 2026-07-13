@@ -137,11 +137,33 @@ func LoadImageToKindClusterWithName(name string) error {
 	if v, ok := os.LookupEnv("KIND_CLUSTER"); ok {
 		cluster = v
 	}
-	kindOptions := []string{"load", "docker-image", name, "--name", cluster}
 	kindBinary := defaultKindBinary
 	if v, ok := os.LookupEnv("KIND"); ok {
 		kindBinary = v
 	}
+	containerTool := os.Getenv("CONTAINER_TOOL")
+	if containerTool == "rootless-podman" || containerTool == "podman" {
+		archive, err := os.CreateTemp("", "foip-operator-*.tar")
+		if err != nil {
+			return err
+		}
+		archivePath := archive.Name()
+		_ = archive.Close()
+		defer func() {
+			_ = os.Remove(archivePath)
+		}()
+
+		saveCmd := exec.Command(containerTool, "save", "-o", archivePath, name)
+		if _, err := Run(saveCmd); err != nil {
+			return err
+		}
+
+		cmd := exec.Command(kindBinary, "load", "image-archive", archivePath, "--name", cluster)
+		_, err = Run(cmd)
+		return err
+	}
+
+	kindOptions := []string{"load", "docker-image", name, "--name", cluster}
 	cmd := exec.Command(kindBinary, kindOptions...)
 	_, err := Run(cmd)
 	return err

@@ -16,6 +16,9 @@ CONTAINER_TOOL ?= $(shell if command -v rootless-podman >/dev/null 2>&1; then ec
 # Options are set to exit when a recipe line exits non-zero or a piped command fails.
 SHELL = /usr/bin/env bash -o pipefail
 .SHELLFLAGS = -ec
+# Let Go resolve the required toolchain automatically when the local shell is older
+# than go.mod so repo targets keep working outside the flake/dev shell.
+export GOTOOLCHAIN = auto
 
 .PHONY: all
 all: build
@@ -194,6 +197,7 @@ CONTROLLER_TOOLS_VERSION ?= v0.20.1
 ENVTEST_VERSION ?= $(shell v='$(call gomodver,sigs.k8s.io/controller-runtime)'; [ -n "$$v" ] || { echo "Set ENVTEST_VERSION manually" >&2; exit 1; }; printf '%s\n' "$$v" | sed -E 's/^v?([0-9]+)\.([0-9]+).*/release-\1.\2/')
 ENVTEST_K8S_VERSION ?= $(shell v='$(call gomodver,k8s.io/api)'; [ -n "$$v" ] || { echo "Set ENVTEST_K8S_VERSION manually" >&2; exit 1; }; printf '%s\n' "$$v" | sed -E 's/^v?[0-9]+\.([0-9]+).*/1.\1/')
 GOLANGCI_LINT_VERSION ?= v2.8.0
+GO_TOOLCHAIN_VERSION ?= $(shell go env GOVERSION 2>/dev/null || go version | awk '{print $$3}')
 
 .PHONY: kustomize
 kustomize: $(KUSTOMIZE)
@@ -220,7 +224,7 @@ $(GOLANGCI_LINT): $(LOCALBIN)
 	$(call go-install-tool,$(GOLANGCI_LINT),github.com/golangci/golangci-lint/v2/cmd/golangci-lint,$(GOLANGCI_LINT_VERSION))
 
 define go-install-tool
-@[ -f "$(1)-$(3)" ] && [ "$$(readlink -- "$(1)" 2>/dev/null)" = "$(1)-$(3)" ] || { set -e; package=$(2)@$(3); echo "Downloading $${package}"; rm -f "$(1)"; GOBIN="$(LOCALBIN)" go install $${package}; mv "$(LOCALBIN)/$$(basename "$(1)")" "$(1)-$(3)"; }; ln -sf "$$(realpath "$(1)-$(3)")" "$(1)"
+@[ -f "$(1)-$(3)-$(GO_TOOLCHAIN_VERSION)" ] && [ "$$(readlink -- "$(1)" 2>/dev/null)" = "$(1)-$(3)-$(GO_TOOLCHAIN_VERSION)" ] || { set -e; package=$(2)@$(3); echo "Downloading $${package}"; rm -f "$(1)"; GOBIN="$(LOCALBIN)" GOTOOLCHAIN=auto go install $${package}; mv "$(LOCALBIN)/$$(basename "$(1)")" "$(1)-$(3)-$(GO_TOOLCHAIN_VERSION)"; }; ln -sf "$$(realpath "$(1)-$(3)-$(GO_TOOLCHAIN_VERSION)")" "$(1)"
 endef
 
 define gomodver

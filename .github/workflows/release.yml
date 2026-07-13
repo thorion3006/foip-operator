@@ -175,10 +175,17 @@ jobs:
         with:
           driver: docker-container
 
-      - name: Download image digests
+      - name: Download amd64 digest
         uses: actions/download-artifact@v4
         with:
-          path: digests
+          name: amd64-digest
+          path: digests/amd64-digest
+
+      - name: Download arm64 digest
+        uses: actions/download-artifact@v4
+        with:
+          name: arm64-digest
+          path: digests/arm64-digest
 
       - name: Create and push manifest list
         id: manifest
