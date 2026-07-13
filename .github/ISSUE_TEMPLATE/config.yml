@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security issue
+    url: https://github.com/thorion3006/foip-operator/security/policy
+    about: Report vulnerabilities privately instead of opening a public issue
+  - name: Documentation and usage
+    url: https://github.com/thorion3006/foip-operator/blob/main/README.md
+    about: Ask general usage or documentation questions here

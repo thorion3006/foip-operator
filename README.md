@@ -1,102 +1,28 @@
 # foip-operator
 
-This operator monitors node objects and assigns a netcup failover IP to one of the 
-"healthiest" nodes. It can be used as a "poor man's load balancer" for the control 
-plane or services on a Kubernetes cluster running in netcup. The operator also ensures 
-that each node's network interface is configured to receive traffic for the failover IP.
+This operator assigns a netcup failover IP to the healthiest node in a Kubernetes
+cluster. It is intended for netcup-hosted control planes or services that need a simple
+failover target without adding a separate load balancer.
 
-Built in Go using [kubebuilder](https://book.kubebuilder.io/) and the 
+The project is built in Go using [kubebuilder](https://book.kubebuilder.io/) and the
 [netcup SCP REST API](https://www.netcup.com/en/helpcenter/documentation/servercontrolpanel/api).
+
+This repository was developed with assistance from AI tools. Human review is still
+expected for changes that affect production behavior, security, or release artifacts.
+
+For internals, controller flow, limitations, and edge cases, see [ARCHITECTURE.md](ARCHITECTURE.md).
+
+## Fork Acknowledgement
 
 This repository is a fork of [niklasbeierl/foip-operator](https://github.com/niklasbeierl/foip-operator).
 Thanks to Niklas Beierl for the original project.
 
-## Fork Differences
+## Usage
 
-Compared with the original repository, this fork currently:
+Recommended install path: **Helm**.
 
-- Uses a make-before-break failover flow so the target node prepares before the route moves
-- Builds a smaller `scratch` runtime image with CA certificates copied in
-- Publishes multi-arch release images for both `linux/amd64` and `linux/arm64`
-- Adds OCI image metadata, SBOM generation, provenance attestation, and cosign signing in the release workflow
-- Prefers `rootless-podman`, then `podman`, then `docker` for local image builds
-- Keeps the controller RBAC and manifests aligned with the current controllers and status updates
-- Adds OpenTelemetry tracing hooks plus Prometheus-scrapable operational metrics for both controller binaries
-
-## Motivation
-
-I wanted a single point of contact for a cluster hosted in netcup, without adding extra 
-nodes for "real" load balancers. As of writing, netcup does not offer managed load 
-balancers. My solution is to automatically assign a failover IP to one of the 
-"healthiest" nodes. This solves two problems:
-
-1. It allows maintenance on individual nodes without paying too much attention to networking.
-2. It recovers connectivity if the currently serving node becomes unhealthy or is lost.
-
-## Limitations
-
-Especially for problem 2, this approach is **not** the best solution. Failover only 
-happens once the control plane detects that the node is unhealthy, which may take from
-seconds to a few minutes. Rerouting the failover IP also takes a few seconds.
-
-Another important consideration: **netcup failover IPs can only be re-assigned every 5 
-minutes**.
-
-## Project status
-
-This project is *works-for-the-author*-grade software. I am happy to review PRs that 
-improve it or add flexibility, but there are no guarantees.
-
-I'd be open to adding support for other hosting providers with similar mechanisms, for
-example Hetzner floating ips.
-
-## Architecture
-
-There are two controllers that run as separate workloads.
-
-### foip controller (Deployment)
-
-Monitors nodes and `FailoverIp` resources. Ensures the failover IP is routed to one of 
-the "healthiest" nodes via the netcup SCP REST API. Runs with leader election so only 
-one instance is active at a time.
-
-### node-interface controller (DaemonSet)
-
-Runs on every node. Checks whether a  failover IP should be routed to this node and 
-ensures the IP is assigned to the correct network interface. This means **you don't have
-to handle network configuration of your nodes manually**.
-
-### Choosing the healthiest node
-
-Several node conditions are checked and ordered by severity. The node with the 
-fewest or least severe issues is chosen:
-
-```
-NetworkUnavailable=True    # Networking broken
-Ready=False                # Node probably lost
-Ready=Unknown              # Node probably lost
-spec.unschedulable         # Cordoned
-PIDPressure=True           # System resource pressure
-MemoryPressure=True
-DiskPressure=True
-```
-
-A node switch only happens if a strictly healthier node is available. 
-Equal health does not lead to a switch (avoids alphabetical flip-flop).
-
-### netcup REST Api
-
-The netcup SCP REST API is documented [here](https://www.netcup.com/en/helpcenter/documentation/servercontrolpanel/api).
-
-The new netcup rest api authenticates with OIDC. As of writing, the only way to get a 
-long-lived credential for automation is to obtain a refresh token with the device login 
-flow. Because that is not very ergonomic, this repo builds a small helper binary
-`netcup-auth` (see below). The refresh token must be used at least once 
-every 30 days to not expire. The controller should ensure this since it fetches 
-the status of the failover ip for every reconcile and reconciles at least every 
-24 hours.
-
-## Installation
+- Use Helm if you want the packaged release, chart values, and observability toggles
+- Use Kustomize if you want raw manifests, custom overlays, or to wire the resources into an existing GitOps flow
 
 ### Prerequisites
 
@@ -145,13 +71,31 @@ Helm unfortunately can't list available versions from oci registries yet, but yo
 for example use skopeo.
 
 ```sh
-kopeo list-tags docker://ghcr.io/thorion3006/foip-operator
+skopeo list-tags docker://ghcr.io/thorion3006/foip-operator
 ```
 
 To get the default values:
 
 ```sh
 helm show values oci://ghcr.io/thorion3006/foip-operator --version <version>
+```
+
+### Install with Kustomize
+
+If you prefer raw manifests or want to manage the deployment with your own overlays,
+use the Kustomize targets:
+
+```sh
+export IMG=ghcr.io/thorion3006/foip-operator/operator:<version>
+make install
+make deploy IMG=$IMG
+```
+
+If you want a single rendered manifest bundle for GitOps or offline use:
+
+```sh
+make build-installer IMG=$IMG
+kubectl apply -f dist/install.yaml
 ```
 
 ### 4. Create a FailoverIp resource (Optional)
