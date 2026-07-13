@@ -227,7 +227,7 @@ from your deployment tooling and the binaries will export spans automatically:
 ```sh
 OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector.observability:4317
 OTEL_SERVICE_NAME=foip-operator-foip
-OTEL_RESOURCE_ATTRIBUTES=service.version=0.2.2,foip.component=foip
+OTEL_RESOURCE_ATTRIBUTES=service.version=0.3.0,foip.component=foip
 ```
 
 The Helm chart wires the service name and resource attributes by default for both
