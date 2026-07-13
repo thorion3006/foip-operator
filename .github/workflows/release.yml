@@ -10,24 +10,155 @@ env:
   IMAGE: ghcr.io/thorion3006/foip-operator/operator
 
 jobs:
-  release:
-    name: Build and publish
+  prepare:
+    name: Prepare release metadata
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      timestamp: ${{ steps.meta.outputs.timestamp }}
+      created: ${{ steps.meta.outputs.created }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Collect build metadata
+        id: meta
+        run: |
+          echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          epoch=$(git show -s --no-show-signature --format=%ct HEAD)
+          echo "timestamp=$epoch" >> "$GITHUB_OUTPUT"
+          echo "created=$(date -u -d "@$epoch" +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
+  build-amd64:
+    name: Build linux/amd64 image
+    runs-on: ubuntu-latest
+    needs: prepare
     permissions:
       contents: read
       packages: write
       id-token: write
       attestations: write
       artifact-metadata: write
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Go
-        uses: actions/setup-go@v5
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
         with:
-          go-version-file: go.mod
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver: docker-container
+
+      - name: Build and push amd64 image
+        id: build
+        uses: docker/build-push-action@v6
+        env:
+          SOURCE_DATE_EPOCH: ${{ needs.prepare.outputs.timestamp }}
+        with:
+          context: .
+          push: true
+          platforms: linux/amd64
+          cache-from: type=gha,scope=release-amd64
+          cache-to: type=gha,mode=max,scope=release-amd64
+          tags: |
+            ${{ env.IMAGE }}:${{ needs.prepare.outputs.version }}-amd64
+          build-args: |
+            VERSION=${{ needs.prepare.outputs.version }}
+            VCS_REF=${{ github.sha }}
+            BUILD_DATE=${{ needs.prepare.outputs.created }}
+          sbom: true
+
+      - name: Save amd64 digest
+        run: |
+          printf '%s\n' '${{ steps.build.outputs.digest }}' > amd64.digest
+
+      - name: Upload amd64 digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: amd64-digest
+          path: amd64.digest
+          if-no-files-found: error
+
+  build-arm64:
+    name: Build linux/arm64 image
+    runs-on: ubuntu-24.04-arm
+    needs: prepare
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver: docker-container
+
+      - name: Build and push arm64 image
+        id: build
+        uses: docker/build-push-action@v6
+        env:
+          SOURCE_DATE_EPOCH: ${{ needs.prepare.outputs.timestamp }}
+        with:
+          context: .
+          push: true
+          platforms: linux/arm64
+          cache-from: type=gha,scope=release-arm64
+          cache-to: type=gha,mode=max,scope=release-arm64
+          tags: |
+            ${{ env.IMAGE }}:${{ needs.prepare.outputs.version }}-arm64
+          build-args: |
+            VERSION=${{ needs.prepare.outputs.version }}
+            VCS_REF=${{ github.sha }}
+            BUILD_DATE=${{ needs.prepare.outputs.created }}
+          sbom: true
+
+      - name: Save arm64 digest
+        run: |
+          printf '%s\n' '${{ steps.build.outputs.digest }}' > arm64.digest
+
+      - name: Upload arm64 digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: arm64-digest
+          path: arm64.digest
+          if-no-files-found: error
+
+  release:
+    name: Publish manifest, sign, and package chart
+    runs-on: ubuntu-latest
+    needs:
+      - prepare
+      - build-amd64
+      - build-arm64
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Log in to GHCR
         uses: docker/login-action@v3
@@ -39,51 +170,39 @@ jobs:
       - name: Install Cosign
         uses: sigstore/cosign-installer@v3
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
       - name: Set up Buildx
         uses: docker/setup-buildx-action@v3
         with:
           driver: docker-container
 
-      - name: Collect build metadata
-        id: meta
-        run: |
-          echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
-          epoch=$(git show -s --no-show-signature --format=%ct HEAD)
-          echo "timestamp=$epoch" >> "$GITHUB_OUTPUT"
-          echo "created=$(date -u -d "@$epoch" +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
-
-      - name: Build and push image
-        id: build-and-push
-        uses: docker/build-push-action@v6
-        env:
-          SOURCE_DATE_EPOCH: ${{ steps.meta.outputs.timestamp }}
+      - name: Download image digests
+        uses: actions/download-artifact@v4
         with:
-          context: .
-          push: true
-          platforms: linux/amd64,linux/arm64
-          tags: |
-            ${{ env.IMAGE }}:${{ steps.meta.outputs.version }}
-            ${{ env.IMAGE }}:latest
-          build-args: |
-            VERSION=${{ steps.meta.outputs.version }}
-            VCS_REF=${{ github.sha }}
-            BUILD_DATE=${{ steps.meta.outputs.created }}
-          sbom: true
+          path: digests
+
+      - name: Create and push manifest list
+        id: manifest
+        run: |
+          amd64_digest=$(cat digests/amd64-digest/amd64.digest)
+          arm64_digest=$(cat digests/arm64-digest/arm64.digest)
+          manifest_digest=$(docker buildx imagetools create \
+            --tag "${IMAGE}:${{ needs.prepare.outputs.version }}" \
+            --tag "${IMAGE}:latest" \
+            "${IMAGE}@${amd64_digest}" \
+            "${IMAGE}@${arm64_digest}" | tail -n1)
+          echo "digest=${manifest_digest}" >> "$GITHUB_OUTPUT"
 
       - name: Attest image provenance
         uses: actions/attest@v4
         with:
           subject-name: ${{ env.IMAGE }}
-          subject-digest: ${{ steps.build-and-push.outputs.digest }}
+          subject-digest: ${{ steps.manifest.outputs.digest }}
           push-to-registry: true
           create-storage-record: false
 
       - name: Sign image digest
         env:
-          DIGEST: ${{ steps.build-and-push.outputs.digest }}
+          DIGEST: ${{ steps.manifest.outputs.digest }}
           IMAGE: ${{ env.IMAGE }}
         run: |
           cosign sign --yes "${IMAGE}@${DIGEST}"
@@ -93,9 +212,10 @@ jobs:
 
       - name: Package and push chart
         run: |
+          mkdir -p dist
           helm package charts/foip-operator \
-            --version ${{ steps.meta.outputs.version }} \
-            --app-version ${{ steps.meta.outputs.version }} \
+            --version ${{ needs.prepare.outputs.version }} \
+            --app-version ${{ needs.prepare.outputs.version }} \
             --destination dist/
-          helm push dist/foip-operator-${{ steps.meta.outputs.version }}.tgz \
+          helm push dist/foip-operator-${{ needs.prepare.outputs.version }}.tgz \
             oci://${{ env.REGISTRY }}/thorion3006

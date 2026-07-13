@@ -17,6 +17,7 @@ Compared with the original repository, this fork currently:
 
 - Uses a make-before-break failover flow so the target node prepares before the route moves
 - Builds a smaller `scratch` runtime image with CA certificates copied in
+- Publishes multi-arch release images for both `linux/amd64` and `linux/arm64`
 - Adds OCI image metadata, SBOM generation, provenance attestation, and cosign signing in the release workflow
 - Prefers `rootless-podman`, then `podman`, then `docker` for local image builds
 - Keeps the controller RBAC and manifests aligned with the current controllers and status updates
