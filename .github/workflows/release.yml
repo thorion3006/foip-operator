@@ -191,6 +191,17 @@ jobs:
           amd64_digest=$(cat digests/amd64-digest/amd64.digest)
           arm64_digest=$(cat digests/arm64-digest/arm64.digest)
           manifest_output=$(docker buildx imagetools create \
+            --annotation "index:org.opencontainers.image.source=https://github.com/thorion3006/foip-operator" \
+            --annotation "index:org.opencontainers.image.url=https://github.com/thorion3006/foip-operator" \
+            --annotation "index:org.opencontainers.image.documentation=https://github.com/thorion3006/foip-operator#readme" \
+            --annotation "index:org.opencontainers.image.title=foip-operator" \
+            --annotation "index:org.opencontainers.image.description=Netcup failover IP operator" \
+            --annotation "index:org.opencontainers.image.vendor=thorion3006" \
+            --annotation "index:org.opencontainers.image.authors=Sajeev Ramasamy <thorion3006@gmail.com>" \
+            --annotation "index:org.opencontainers.image.version=${{ needs.prepare.outputs.version }}" \
+            --annotation "index:org.opencontainers.image.revision=${{ github.sha }}" \
+            --annotation "index:org.opencontainers.image.created=${{ needs.prepare.outputs.created }}" \
+            --annotation "index:org.opencontainers.image.licenses=Apache-2.0" \
             --tag "${IMAGE}:${{ needs.prepare.outputs.version }}" \
             --tag "${IMAGE}:latest" \
             "${IMAGE}@${amd64_digest}" \
