@@ -64,10 +64,10 @@ make docker-build
 The default image is:
 
 ```text
-ghcr.io/thorion3006/foip-operator/operator:0.2.1
+ghcr.io/thorion3006/foip-operator/operator:0.2.2
 ```
 
-Package and publish Helm chart version `0.2.1`:
+Package and publish Helm chart version `0.2.2`:
 
 ```bash
 make helm-package
@@ -84,7 +84,7 @@ All release defaults can still be overridden per invocation:
 
 ```bash
 make docker-build IMG=ghcr.io/example/foip-operator:test
-make helm-package CHART_VERSION=0.2.1
+make helm-package CHART_VERSION=0.2.2
 make helm-push HELM_OCI_REPOSITORY=oci://ghcr.io/example
 ```
 
