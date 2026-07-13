@@ -18,10 +18,17 @@
           pkgs = import nixpkgs {
             inherit system;
           };
+          goPackage = pkgs.go_1_26.overrideAttrs (_: {
+            version = "1.26.5";
+            src = pkgs.fetchurl {
+              url = "https://go.dev/dl/go1.26.5.linux-${if pkgs.stdenv.hostPlatform.system == "aarch64-linux" then "arm64" else "amd64"}.tar.gz";
+              sha256 = if pkgs.stdenv.hostPlatform.system == "aarch64-linux" then "sha256-/keJ6SsfMzWGgIZLvocEKJ57tfwgfYBiPDCJNb1pbUk=" else "sha256-XCw7FsrvodloqUwdrKBKfKMBpJbZsIbhetd7uBOT8FM=";
+            };
+          });
         in {
           default = pkgs.mkShell {
             packages = with pkgs; [
-              go_1_25
+              goPackage
               gopls
               gotools
               golangci-lint
