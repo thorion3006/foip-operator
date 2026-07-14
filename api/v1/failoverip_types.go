@@ -55,6 +55,18 @@ type FailoverIpSpec struct {
 	// SecretName names the Secret containing refreshToken and userId.
 	// +kubebuilder:validation:Required
 	SecretName string `json:"secretName"`
+
+	// ProviderCooldownSeconds is the minimum interval between route mutations.
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:default=60
+	ProviderCooldownSeconds int32 `json:"providerCooldownSeconds,omitempty"`
+	// RetryBaseSeconds and RetryMaxSeconds bound transient retry delays.
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:default=2
+	RetryBaseSeconds int32 `json:"retryBaseSeconds,omitempty"`
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:default=60
+	RetryMaxSeconds int32 `json:"retryMaxSeconds,omitempty"`
 }
 
 // FailoverIpStatus defines the observed state of FailoverIp.

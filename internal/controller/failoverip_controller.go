@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -132,6 +133,16 @@ func (r *FailoverIpReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("findFailoverIP: %w", err)
 	}
+	if err := validateProviderFence(foip.Status, strconv.Itoa(currentServerID), ""); err != nil {
+		patch := client.MergeFrom(foip.DeepCopy())
+		foip.Status.Phase = netcupv1.FailoverPhaseBlocked
+		foip.Status.LastError = err.Error()
+		if patchErr := r.Status().Patch(ctx, &foip, patch); patchErr != nil {
+			return ctrl.Result{}, patchErr
+		}
+		return ctrl.Result{}, err
+	}
+	foip.Status.ProviderObservedOwner = strconv.Itoa(currentServerID)
 
 	var nodeList corev1.NodeList
 	if err := r.List(ctx, &nodeList); err != nil {
@@ -183,10 +194,21 @@ func (r *FailoverIpReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	}
 
 	if currentServerID != targetServerID {
+		now := time.Now()
+		nextMutation, allowed := providerMutationGate(foip.Status, providerCooldown(foip.Spec), now)
+		if !allowed {
+			patch := client.MergeFrom(foip.DeepCopy())
+			eligible := metav1.NewTime(nextMutation)
+			foip.Status.NextEligibleMutationAt = &eligible
+			if err := r.Status().Patch(ctx, &foip, patch); err != nil {
+				return ctrl.Result{}, err
+			}
+			return ctrl.Result{RequeueAfter: time.Until(nextMutation)}, nil
+		}
 		handoffStart := time.Now()
 		patch := client.MergeFrom(foip.DeepCopy())
-		now := metav1.Now()
-		foip.Status.LastAttemptedProviderMutationAt = &now
+		attemptedAt := metav1.Now()
+		foip.Status.LastAttemptedProviderMutationAt = &attemptedAt
 		if err := r.Status().Patch(ctx, &foip, patch); err != nil {
 			return ctrl.Result{}, err
 		}
@@ -195,6 +217,12 @@ func (r *FailoverIpReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		routeStart := time.Now()
 		if err := nc.RouteFailoverIP(ctx, foipID, targetServerID); err != nil {
 			observability.ObserveProviderCall("netcup", "route_failover_ip", time.Since(routeStart), err)
+			patch := client.MergeFrom(foip.DeepCopy())
+			foip.Status.RetryCount++
+			foip.Status.LastError = err.Error()
+			if patchErr := r.Status().Patch(ctx, &foip, patch); patchErr != nil {
+				return ctrl.Result{}, patchErr
+			}
 			return ctrl.Result{}, fmt.Errorf("routeFailoverIP: %w", err)
 		}
 		observability.ObserveProviderCall("netcup", "route_failover_ip", time.Since(routeStart), nil)
@@ -229,8 +257,10 @@ func (r *FailoverIpReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 
 	patch := client.MergeFrom(foip.DeepCopy())
 	foip.Status.SourceNode = foip.Status.TargetNode
-	now := metav1.Now()
-	foip.Status.LastConfirmedProviderMutationAt = &now
+	confirmedAt := metav1.Now()
+	foip.Status.LastConfirmedProviderMutationAt = &confirmedAt
+	foip.Status.ProviderObservedOwner = strconv.Itoa(targetServerID)
+	foip.Status.NextEligibleMutationAt = nil
 	foip.Status.Phase = netcupv1.FailoverPhaseSucceeded
 	foip.Status.LastSuccessfulPhase = netcupv1.FailoverPhaseCommitting
 	if err := r.Status().Patch(ctx, &foip, patch); err != nil {

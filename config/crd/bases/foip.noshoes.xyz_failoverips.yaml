@@ -56,6 +56,25 @@ spec:
                 description: IP is the failover IP address to manage, without a prefix
                   length.
                 type: string
+              providerCooldownSeconds:
+                default: 60
+                description: ProviderCooldownSeconds is the minimum interval between
+                  route mutations.
+                format: int32
+                minimum: 0
+                type: integer
+              retryBaseSeconds:
+                default: 2
+                description: RetryBaseSeconds and RetryMaxSeconds bound transient
+                  retry delays.
+                format: int32
+                minimum: 1
+                type: integer
+              retryMaxSeconds:
+                default: 60
+                format: int32
+                minimum: 1
+                type: integer
               secretName:
                 description: SecretName names the Secret containing refreshToken and
                   userId.
