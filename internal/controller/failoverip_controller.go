@@ -23,6 +23,7 @@ import (
 
 	"go.opentelemetry.io/otel/attribute"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -97,6 +98,15 @@ func (r *FailoverIpReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	if err := r.Get(ctx, req.NamespacedName, &foip); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
+	if foip.Status.TransitionID == "" {
+		patch := client.MergeFrom(foip.DeepCopy())
+		now := metav1.Now()
+		netcupv1.StartTransition(&foip.Status, now)
+		if err := r.Status().Patch(ctx, &foip, patch); err != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{RequeueAfter: preparationPollInterval}, nil
+	}
 
 	var secret corev1.Secret
 	secretStart := time.Now()
@@ -128,52 +138,60 @@ func (r *FailoverIpReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		return ctrl.Result{}, err
 	}
 	candidates := candidateNodes(nodeList.Items)
-	better := betterNode(candidates, foip.Status.DesiredNode)
+	better := betterNode(candidates, foip.Status.TargetNode)
 
-	if better != nil && better.Name != foip.Status.DesiredNode {
+	if better != nil && better.Name != foip.Status.TargetNode {
 		patch := client.MergeFrom(foip.DeepCopy())
-		foip.Status.DesiredNode = better.Name
-		foip.Status.PreparedNode = ""
+		foip.Status.SourceNode = foip.Status.TargetNode
+		foip.Status.TargetNode = better.Name
+		foip.Status.LocalOwners = nil
+		if foip.Status.Phase == netcupv1.FailoverPhaseSelecting {
+			now := metav1.Now()
+			if err := netcupv1.AdvanceTransition(&foip.Status, netcupv1.FailoverPhaseStabilizing, now); err != nil {
+				return ctrl.Result{}, err
+			}
+		}
 		if err := r.Status().Patch(ctx, &foip, patch); err != nil {
 			return ctrl.Result{}, err
 		}
-		log.Info("selected failover target", "node", better.Name, "previousAssignedNode", foip.Status.AssignedNode)
+		log.Info("Selected failover target", "node", better.Name, "previousSourceNode", foip.Status.SourceNode)
 		return ctrl.Result{RequeueAfter: preparationPollInterval}, nil
 	}
 
-	if foip.Status.DesiredNode == "" {
+	if foip.Status.TargetNode == "" {
 		return ctrl.Result{RequeueAfter: r.requeueAfter}, nil
 	}
 
 	var targetNode corev1.Node
-	if err := r.Get(ctx, types.NamespacedName{Name: foip.Status.DesiredNode}, &targetNode); err != nil {
+	if err := r.Get(ctx, types.NamespacedName{Name: foip.Status.TargetNode}, &targetNode); err != nil {
 		return ctrl.Result{}, err
 	}
 	serverIDStr := targetNode.Annotations[netcupv1.ServerIDAnnotation]
 	if serverIDStr == "" {
-		return ctrl.Result{}, fmt.Errorf("node %s missing annotation %s", foip.Status.DesiredNode, netcupv1.ServerIDAnnotation)
+		return ctrl.Result{}, fmt.Errorf("node %s missing annotation %s", foip.Status.TargetNode, netcupv1.ServerIDAnnotation)
 	}
 	var targetServerID int
 	if _, err := fmt.Sscanf(serverIDStr, "%d", &targetServerID); err != nil {
-		return ctrl.Result{}, fmt.Errorf("node %s annotation %s is not an integer: %w", foip.Status.DesiredNode, netcupv1.ServerIDAnnotation, err)
+		return ctrl.Result{}, fmt.Errorf("node %s annotation %s is not an integer: %w", foip.Status.TargetNode, netcupv1.ServerIDAnnotation, err)
 	}
 
 	// Never change the provider route until the target node agent confirms the
 	// address is already present on the target public interface.
-	if foip.Status.PreparedNode != foip.Status.DesiredNode {
-		log.Info("waiting for target node to prepare failover IP", "desiredNode", foip.Status.DesiredNode, "preparedNode", foip.Status.PreparedNode)
+	if !containsNode(foip.Status.LocalOwners, foip.Status.TargetNode) {
+		log.Info("Waiting for target node to prepare failover IP", "targetNode", foip.Status.TargetNode)
 		return ctrl.Result{RequeueAfter: preparationPollInterval}, nil
 	}
 
 	if currentServerID != targetServerID {
 		handoffStart := time.Now()
 		patch := client.MergeFrom(foip.DeepCopy())
-		foip.Status.LastSyncAttempt = time.Now().UTC().Format(time.RFC3339)
+		now := metav1.Now()
+		foip.Status.LastAttemptedProviderMutationAt = &now
 		if err := r.Status().Patch(ctx, &foip, patch); err != nil {
 			return ctrl.Result{}, err
 		}
 
-		log.Info("routing failover IP through Netcup", "ip", foip.Spec.IP, "serverID", targetServerID, "node", foip.Status.DesiredNode)
+		log.Info("Routing failover IP through Netcup", "ip", foip.Spec.IP, "serverID", targetServerID, "node", foip.Status.TargetNode)
 		routeStart := time.Now()
 		if err := nc.RouteFailoverIP(ctx, foipID, targetServerID); err != nil {
 			observability.ObserveProviderCall("netcup", "route_failover_ip", time.Since(routeStart), err)
@@ -210,14 +228,26 @@ func (r *FailoverIpReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	}
 
 	patch := client.MergeFrom(foip.DeepCopy())
-	foip.Status.AssignedNode = foip.Status.DesiredNode
-	foip.Status.LastSyncSuccess = time.Now().UTC().Format(time.RFC3339)
+	foip.Status.SourceNode = foip.Status.TargetNode
+	now := metav1.Now()
+	foip.Status.LastConfirmedProviderMutationAt = &now
+	foip.Status.Phase = netcupv1.FailoverPhaseSucceeded
+	foip.Status.LastSuccessfulPhase = netcupv1.FailoverPhaseCommitting
 	if err := r.Status().Patch(ctx, &foip, patch); err != nil {
 		return ctrl.Result{}, err
 	}
-	log.Info("failover handoff committed; stale owners may clean up", "assignedNode", foip.Status.AssignedNode, "serverID", targetServerID)
+	log.Info("Failover handoff committed; stale owners may clean up", "assignedNode", foip.Status.SourceNode, "serverID", targetServerID)
 
 	return ctrl.Result{RequeueAfter: r.requeueAfter}, nil
+}
+
+func containsNode(nodes []string, name string) bool {
+	for _, node := range nodes {
+		if node == name {
+			return true
+		}
+	}
+	return false
 }
 
 type nodeChangePredicate struct {

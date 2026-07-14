@@ -138,6 +138,12 @@ func TestFailoverIpReconciler_SelectsNodeAndUpdatesStatus(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reconcile: %v", err)
 	}
+	_, err = controllerReconciler.Reconcile(ctx, reconcile.Request{
+		NamespacedName: types.NamespacedName{Name: resourceName, Namespace: namespace},
+	})
+	if err != nil {
+		t.Fatalf("select target: %v", err)
+	}
 	if fakeClient.routeCalled {
 		t.Fatalf("route client should not have been called during target selection")
 	}
@@ -146,11 +152,11 @@ func TestFailoverIpReconciler_SelectsNodeAndUpdatesStatus(t *testing.T) {
 	if err := k8sClient.Get(ctx, types.NamespacedName{Name: resourceName, Namespace: namespace}, &updated); err != nil {
 		t.Fatalf("get updated failoverip: %v", err)
 	}
-	if updated.Status.DesiredNode != nodeName {
-		t.Fatalf("desiredNode = %q, want %q", updated.Status.DesiredNode, nodeName)
+	if updated.Status.TargetNode != nodeName {
+		t.Fatalf("targetNode = %q, want %q", updated.Status.TargetNode, nodeName)
 	}
-	if updated.Status.PreparedNode != "" {
-		t.Fatalf("preparedNode = %q, want empty", updated.Status.PreparedNode)
+	if len(updated.Status.LocalOwners) != 0 {
+		t.Fatalf("localOwners = %v, want empty", updated.Status.LocalOwners)
 	}
 }
 
@@ -187,9 +193,10 @@ func TestFailoverIpReconciler_CompletesMakeBeforeBreakHandoff(t *testing.T) {
 			SecretName: secretName,
 		},
 		Status: netcupv1.FailoverIpStatus{
-			DesiredNode:  nodeName,
-			PreparedNode: nodeName,
-			AssignedNode: "",
+			TransitionID: "transition-1",
+			Phase:        netcupv1.FailoverPhaseTargetPrepared,
+			TargetNode:   nodeName,
+			LocalOwners:  []string{nodeName},
 		},
 	}
 	if err := k8sClient.Create(ctx, resource); err != nil {
@@ -256,10 +263,10 @@ func TestFailoverIpReconciler_CompletesMakeBeforeBreakHandoff(t *testing.T) {
 	if err := k8sClient.Get(ctx, types.NamespacedName{Name: resourceName, Namespace: namespace}, &updated); err != nil {
 		t.Fatalf("get updated failoverip: %v", err)
 	}
-	if updated.Status.AssignedNode != nodeName {
-		t.Fatalf("assignedNode = %q, want %q", updated.Status.AssignedNode, nodeName)
+	if updated.Status.SourceNode != nodeName {
+		t.Fatalf("sourceNode = %q, want %q", updated.Status.SourceNode, nodeName)
 	}
-	if updated.Status.LastSyncSuccess == "" {
-		t.Fatalf("lastSyncSuccess = empty, want timestamp")
+	if updated.Status.LastConfirmedProviderMutationAt == nil {
+		t.Fatalf("lastConfirmedProviderMutationAt = nil, want timestamp")
 	}
 }

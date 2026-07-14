@@ -18,14 +18,14 @@ spec:
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
-    - jsonPath: .status.desiredNode
-      name: Desired
+    - jsonPath: .status.phase
+      name: Phase
       type: string
-    - jsonPath: .status.assignedNode
-      name: Assigned
+    - jsonPath: .status.targetNode
+      name: Target
       type: string
-    - jsonPath: .status.preparedNode
-      name: Prepared
+    - jsonPath: .status.transitionID
+      name: Transition
       type: string
     name: v1
     schema:
@@ -67,10 +67,6 @@ spec:
           status:
             description: FailoverIpStatus defines the observed state of FailoverIp.
             properties:
-              assignedNode:
-                description: AssignedNode is the node confirmed as the provider-routed
-                  owner.
-                type: string
               conditions:
                 items:
                   description: Condition contains details for one aspect of the current
@@ -127,21 +123,65 @@ spec:
                   - type
                   type: object
                 type: array
-              desiredNode:
-                description: DesiredNode is the target selected for the next or current
-                  ownership state.
+              lastAttemptedProviderMutationAt:
+                format: date-time
                 type: string
-              lastSyncAttempt:
-                description: LastSyncAttempt is the RFC3339 timestamp of the last
-                  provider route attempt.
+              lastConfirmedProviderMutationAt:
+                format: date-time
                 type: string
-              lastSyncSuccess:
-                description: LastSyncSuccess is the RFC3339 timestamp of the last
-                  verified route handoff.
+              lastError:
                 type: string
-              preparedNode:
-                description: PreparedNode is the desired node that confirmed the /32
-                  is present locally.
+              lastSuccessfulPhase:
+                description: LastSuccessfulPhase is the last phase completed successfully.
+                type: string
+              lastTransitionAt:
+                format: date-time
+                type: string
+              localOwners:
+                description: LocalOwners is the set of nodes reporting local /32 ownership.
+                items:
+                  type: string
+                type: array
+              nextEligibleMutationAt:
+                format: date-time
+                type: string
+              phase:
+                description: Phase is the durable state-machine phase.
+                enum:
+                - Idle
+                - Selecting
+                - Stabilizing
+                - PreparingTarget
+                - TargetPrepared
+                - RoutingProvider
+                - VerifyingProvider
+                - VerifyingTraffic
+                - Committing
+                - CleaningStaleOwners
+                - Succeeded
+                - Degraded
+                - Blocked
+                type: string
+              phaseStartedAt:
+                description: PhaseStartedAt records when the current phase began.
+                format: date-time
+                type: string
+              providerObservedOwner:
+                description: ProviderObservedOwner is the server ID observed from
+                  the provider.
+                type: string
+              retryCount:
+                format: int32
+                type: integer
+              sourceNode:
+                description: SourceNode is the committed owner at transition start.
+                type: string
+              targetNode:
+                description: TargetNode is the selected destination for this transition.
+                type: string
+              transitionID:
+                description: TransitionID identifies the logical handoff and fences
+                  stale reconciles.
                 type: string
             type: object
         required:

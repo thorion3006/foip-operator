@@ -93,7 +93,7 @@ func (r *NodeInterfaceReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, fmt.Errorf("node %s missing annotation %s", r.NodeName, netcupv1.MACAnnotation)
 	}
 
-	shouldOwn := r.NodeName == foip.Status.DesiredNode || r.NodeName == foip.Status.AssignedNode
+	shouldOwn := r.NodeName == foip.Status.TargetNode || r.NodeName == foip.Status.SourceNode
 	if shouldOwn {
 		assignStart := time.Now()
 		if err := ensureIPAssigned(mac, foip.Spec.IP); err != nil {
@@ -105,9 +105,9 @@ func (r *NodeInterfaceReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 
 		// Only the desired node reports preparation. This is the controller's
 		// gate before changing the provider route.
-		if r.NodeName == foip.Status.DesiredNode && foip.Status.PreparedNode != r.NodeName {
+		if r.NodeName == foip.Status.TargetNode && !containsNode(foip.Status.LocalOwners, r.NodeName) {
 			patch := client.MergeFrom(foip.DeepCopy())
-			foip.Status.PreparedNode = r.NodeName
+			foip.Status.LocalOwners = append(foip.Status.LocalOwners, r.NodeName)
 			if err := r.Status().Patch(ctx, &foip, patch); err != nil {
 				return ctrl.Result{}, fmt.Errorf("marking node %s prepared: %w", r.NodeName, err)
 			}
