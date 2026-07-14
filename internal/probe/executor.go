@@ -1,0 +1,135 @@
+package probe
+
+import (
+	"context"
+	"crypto/tls"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"strconv"
+	"strings"
+	"time"
+
+	netcupv1 "github.com/thorion3006/foip-operator/api/v1"
+)
+
+const maxResponseBody = 1 << 20
+
+// Result is intentionally bounded and contains no request headers or body.
+type Result struct {
+	Success bool
+	Reason  string
+}
+
+// Execute runs one provider-neutral probe with a caller-owned context.
+func Execute(ctx context.Context, spec netcupv1.FailoverProbeSpec) Result {
+	if err := netcupv1.ValidateProbeSpec(spec); err != nil {
+		return Result{Reason: err.Error()}
+	}
+	timeout := time.Duration(spec.TimeoutSeconds) * time.Second
+	if timeout <= 0 {
+		timeout = 5 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	switch spec.Type {
+	case netcupv1.ProbeTypeTCP:
+		return tcp(ctx, spec.Target, false, spec.InsecureSkipVerify)
+	case netcupv1.ProbeTypeTLS:
+		return tcp(ctx, spec.Target, true, spec.InsecureSkipVerify)
+	case netcupv1.ProbeTypeHTTP, netcupv1.ProbeTypeHTTPS:
+		return httpProbe(ctx, spec)
+	default:
+		return Result{Reason: fmt.Sprintf("probe type %q has no network executor", spec.Type)}
+	}
+}
+
+func tcp(ctx context.Context, target netcupv1.ProbeTarget, tlsMode, insecure bool) Result {
+	address := net.JoinHostPort(target.Address, strconv.Itoa(int(target.Port)))
+	dialer := &net.Dialer{}
+	var conn net.Conn
+	var err error
+	if tlsMode {
+		conn, err = tls.DialWithDialer(dialer, "tcp", address, &tls.Config{ServerName: target.SNI, MinVersion: tls.VersionTLS12, InsecureSkipVerify: insecure}) // #nosec G402 -- insecure mode is an explicit API opt-in
+	} else {
+		conn, err = dialer.DialContext(ctx, "tcp", address)
+	}
+	if err != nil {
+		return Result{Reason: "connection failed"}
+	}
+	_ = conn.Close()
+	return Result{Success: true}
+}
+
+func httpProbe(ctx context.Context, spec netcupv1.FailoverProbeSpec) Result {
+	scheme := "http"
+	if spec.Type == netcupv1.ProbeTypeHTTPS {
+		scheme = "https"
+	}
+	path := spec.Target.Path
+	if path == "" {
+		path = "/"
+	}
+	url := scheme + "://" + net.JoinHostPort(spec.Target.Address, strconv.Itoa(int(spec.Target.Port))) + path
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return Result{Reason: "invalid request"}
+	}
+	if spec.Target.Host != "" {
+		req.Host = spec.Target.Host
+	}
+	transport := &http.Transport{TLSClientConfig: &tls.Config{ServerName: spec.Target.SNI, MinVersion: tls.VersionTLS12, InsecureSkipVerify: spec.InsecureSkipVerify}} // #nosec G402 -- insecure mode is an explicit API opt-in
+	if !spec.FollowRedirects {
+		transport.DisableKeepAlives = true
+	}
+	client := &http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error {
+		if !spec.FollowRedirects {
+			return http.ErrUseLastResponse
+		}
+		return nil
+	}}
+	resp, err := client.Do(req)
+	if err != nil {
+		return Result{Reason: "request failed"}
+	}
+	defer func() { _ = resp.Body.Close() }()
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxResponseBody))
+	if resp.StatusCode/100 != 2 {
+		return Result{Reason: "unexpected HTTP status"}
+	}
+	return Result{Success: true}
+}
+
+// Aggregate applies deterministic composition semantics to probe outcomes.
+func Aggregate(composition netcupv1.ProbeComposition, quorum int32, results []Result) Result {
+	if len(results) == 0 {
+		return Result{Reason: "no probe results"}
+	}
+	successes := 0
+	for _, result := range results {
+		if result.Success {
+			successes++
+		}
+	}
+	switch composition {
+	case "", netcupv1.ProbeCompositionAll:
+		if successes == len(results) {
+			return Result{Success: true}
+		}
+		return Result{Reason: "not all probes succeeded"}
+	case netcupv1.ProbeCompositionAny:
+		if successes > 0 {
+			return Result{Success: true}
+		}
+		return Result{Reason: "no probe succeeded"}
+	case netcupv1.ProbeCompositionQuorum:
+		if successes >= int(quorum) {
+			return Result{Success: true}
+		}
+		return Result{Reason: fmt.Sprintf("quorum not reached: %d/%d", successes, quorum)}
+	default:
+		return Result{Reason: strings.TrimSpace("unsupported composition")}
+	}
+}
