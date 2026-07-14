@@ -116,6 +116,21 @@ spec:
                 - kind
                 - name
                 type: object
+              networkPolicy:
+                description: ProbeNetworkPolicy controls which resolved destinations
+                  a probe may reach.
+                properties:
+                  allowPrivateNetworks:
+                    type: boolean
+                  allowedCIDRs:
+                    items:
+                      type: string
+                    type: array
+                  deniedCIDRs:
+                    items:
+                      type: string
+                    type: array
+                type: object
               phase:
                 description: ProbePhase controls when a probe participates in a transition.
                 enum:

@@ -33,6 +33,11 @@ func Execute(ctx context.Context, spec netcupv1.FailoverProbeSpec) Result {
 	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
+	if spec.Type != netcupv1.ProbeTypeKubernetes {
+		if err := validateTarget(ctx, spec.Target, spec.NetworkPolicy); err != nil {
+			return Result{Reason: "target blocked by network policy"}
+		}
+	}
 
 	switch spec.Type {
 	case netcupv1.ProbeTypeTCP:
@@ -84,9 +89,12 @@ func httpProbe(ctx context.Context, spec netcupv1.FailoverProbeSpec) Result {
 	if !spec.FollowRedirects {
 		transport.DisableKeepAlives = true
 	}
-	client := &http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error {
+	client := &http.Client{Transport: transport, CheckRedirect: func(next *http.Request, _ []*http.Request) error {
 		if !spec.FollowRedirects {
 			return http.ErrUseLastResponse
+		}
+		if err := validateTarget(next.Context(), netcupv1.ProbeTarget{Address: next.URL.Hostname()}, spec.NetworkPolicy); err != nil {
+			return fmt.Errorf("redirect target blocked by network policy")
 		}
 		return nil
 	}}

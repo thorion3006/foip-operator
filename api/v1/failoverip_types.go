@@ -113,6 +113,13 @@ type ProbeTarget struct {
 	SNI     string `json:"sni,omitempty"`
 }
 
+// ProbeNetworkPolicy controls which resolved destinations a probe may reach.
+type ProbeNetworkPolicy struct {
+	AllowPrivateNetworks bool     `json:"allowPrivateNetworks,omitempty"`
+	AllowedCIDRs         []string `json:"allowedCIDRs,omitempty"`
+	DeniedCIDRs          []string `json:"deniedCIDRs,omitempty"`
+}
+
 // KubernetesReadinessTarget describes a Kubernetes object readiness check.
 type KubernetesReadinessTarget struct {
 	APIVersion string `json:"apiVersion"`
@@ -135,6 +142,7 @@ type FailoverProbeSpec struct {
 	// +kubebuilder:validation:Enum=TCP;TLS;HTTP;HTTPS;Kubernetes
 	Type                ProbeType                  `json:"type"`
 	Target              ProbeTarget                `json:"target,omitempty"`
+	NetworkPolicy       ProbeNetworkPolicy         `json:"networkPolicy,omitempty"`
 	Kubernetes          *KubernetesReadinessTarget `json:"kubernetes,omitempty"`
 	TimeoutSeconds      int32                      `json:"timeoutSeconds,omitempty"`
 	IntervalSeconds     int32                      `json:"intervalSeconds,omitempty"`
