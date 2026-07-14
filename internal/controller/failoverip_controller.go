@@ -212,6 +212,14 @@ func (r *FailoverIpReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		log.Info("Waiting for target node to prepare failover IP", "targetNode", foip.Status.TargetNode)
 		return ctrl.Result{RequeueAfter: preparationPollInterval}, nil
 	}
+	if err := evaluateProbePhase(ctx, r.APIReader, foip, netcupv1.ProbePhasePreRoute); err != nil {
+		patch := client.MergeFrom(foip.DeepCopy())
+		foip.Status.LastError = err.Error()
+		if patchErr := r.Status().Patch(ctx, &foip, patch); patchErr != nil {
+			return ctrl.Result{}, patchErr
+		}
+		return ctrl.Result{RequeueAfter: preparationPollInterval}, nil
+	}
 
 	if currentServerID != targetServerID {
 		now := time.Now()
@@ -273,6 +281,15 @@ func (r *FailoverIpReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			return ctrl.Result{}, fmt.Errorf("provider route did not converge to server %d; retaining old and new local ownership", targetServerID)
 		}
 		observability.ObserveHandoffDuration(time.Since(handoffStart))
+	}
+	if err := evaluateProbePhase(ctx, r.APIReader, foip, netcupv1.ProbePhasePostRoute); err != nil {
+		patch := client.MergeFrom(foip.DeepCopy())
+		foip.Status.LastError = err.Error()
+		foip.Status.Phase = netcupv1.FailoverPhaseDegraded
+		if patchErr := r.Status().Patch(ctx, &foip, patch); patchErr != nil {
+			return ctrl.Result{}, patchErr
+		}
+		return ctrl.Result{RequeueAfter: preparationPollInterval}, nil
 	}
 
 	patch := client.MergeFrom(foip.DeepCopy())
