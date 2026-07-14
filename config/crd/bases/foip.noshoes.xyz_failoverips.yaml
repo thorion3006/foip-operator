@@ -52,10 +52,24 @@ spec:
           spec:
             description: FailoverIpSpec defines the desired state of FailoverIp.
             properties:
+              failureThreshold:
+                default: 3
+                description: |-
+                  FailureThreshold and RecoveryThreshold prevent transient health changes
+                  from starting or immediately reversing a handoff.
+                format: int32
+                minimum: 1
+                type: integer
               ip:
                 description: IP is the failover IP address to manage, without a prefix
                   length.
                 type: string
+              minHealthySeconds:
+                format: int32
+                minimum: 0
+                type: integer
+              preferCurrentOwner:
+                type: boolean
               probes:
                 description: Probes is optional; an empty list enables node-health-only
                   operation.
@@ -84,6 +98,11 @@ spec:
                 format: int32
                 minimum: 0
                 type: integer
+              recoveryThreshold:
+                default: 2
+                format: int32
+                minimum: 1
+                type: integer
               retryBaseSeconds:
                 default: 2
                 description: RetryBaseSeconds and RetryMaxSeconds bound transient
@@ -100,6 +119,11 @@ spec:
                 description: SecretName names the Secret containing refreshToken and
                   userId.
                 type: string
+              stabilizationSeconds:
+                default: 30
+                format: int32
+                minimum: 0
+                type: integer
             required:
             - ip
             - secretName
@@ -107,6 +131,11 @@ spec:
           status:
             description: FailoverIpStatus defines the observed state of FailoverIp.
             properties:
+              candidateReason:
+                type: string
+              candidateSince:
+                format: date-time
+                type: string
               conditions:
                 items:
                   description: Condition contains details for one aspect of the current

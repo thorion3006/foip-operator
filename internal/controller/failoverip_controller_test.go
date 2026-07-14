@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"testing"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -118,6 +119,7 @@ func TestFailoverIpReconciler_SelectsNodeAndUpdatesStatus(t *testing.T) {
 				netcupv1.MACAnnotation:      macAddress,
 			},
 		},
+		Status: corev1.NodeStatus{Conditions: []corev1.NodeCondition{{Type: corev1.NodeReady, Status: corev1.ConditionTrue}}},
 	}
 	if err := k8sClient.Create(ctx, node); err != nil {
 		t.Fatalf("create node: %v", err)
@@ -143,6 +145,21 @@ func TestFailoverIpReconciler_SelectsNodeAndUpdatesStatus(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("select target: %v", err)
+	}
+	var pending netcupv1.FailoverIp
+	if err := k8sClient.Get(ctx, types.NamespacedName{Name: resourceName, Namespace: namespace}, &pending); err != nil {
+		t.Fatalf("get pending failoverip: %v", err)
+	}
+	past := metav1.NewTime(time.Now().Add(-time.Hour))
+	pending.Status.CandidateSince = &past
+	if err := k8sClient.Status().Update(ctx, &pending); err != nil {
+		t.Fatalf("backdate candidate timer: %v", err)
+	}
+	_, err = controllerReconciler.Reconcile(ctx, reconcile.Request{
+		NamespacedName: types.NamespacedName{Name: resourceName, Namespace: namespace},
+	})
+	if err != nil {
+		t.Fatalf("stabilize target: %v", err)
 	}
 	if fakeClient.routeCalled {
 		t.Fatalf("route client should not have been called during target selection")

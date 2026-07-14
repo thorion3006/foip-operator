@@ -68,6 +68,20 @@ type FailoverIpSpec struct {
 	// +kubebuilder:validation:Minimum=1
 	// +kubebuilder:default=60
 	RetryMaxSeconds int32 `json:"retryMaxSeconds,omitempty"`
+	// FailureThreshold and RecoveryThreshold prevent transient health changes
+	// from starting or immediately reversing a handoff.
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:default=3
+	FailureThreshold int32 `json:"failureThreshold,omitempty"`
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:default=2
+	RecoveryThreshold int32 `json:"recoveryThreshold,omitempty"`
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:default=30
+	StabilizationSeconds int32 `json:"stabilizationSeconds,omitempty"`
+	// +kubebuilder:validation:Minimum=0
+	MinHealthySeconds  int32 `json:"minHealthySeconds,omitempty"`
+	PreferCurrentOwner bool  `json:"preferCurrentOwner,omitempty"`
 
 	// Probes is optional; an empty list enables node-health-only operation.
 	// +kubebuilder:validation:MaxItems=32
@@ -212,6 +226,8 @@ type FailoverIpStatus struct {
 	LastConfirmedProviderMutationAt *metav1.Time  `json:"lastConfirmedProviderMutationAt,omitempty"`
 	NextEligibleMutationAt          *metav1.Time  `json:"nextEligibleMutationAt,omitempty"`
 	LastTransitionAt                *metav1.Time  `json:"lastTransitionAt,omitempty"`
+	CandidateSince                  *metav1.Time  `json:"candidateSince,omitempty"`
+	CandidateReason                 string        `json:"candidateReason,omitempty"`
 
 	// +kubebuilder:validation:Optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`

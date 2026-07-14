@@ -152,10 +152,30 @@ func (r *FailoverIpReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	better := betterNode(candidates, foip.Status.TargetNode)
 
 	if better != nil && better.Name != foip.Status.TargetNode {
+		candidate := *better
+		if foip.Status.CandidateSince == nil {
+			patch := client.MergeFrom(foip.DeepCopy())
+			now := metav1.Now()
+			foip.Status.CandidateSince = &now
+			foip.Status.CandidateReason = "healthiest candidate selected"
+			if err := r.Status().Patch(ctx, &foip, patch); err != nil {
+				return ctrl.Result{}, err
+			}
+			return ctrl.Result{RequeueAfter: stabilizationWindow(foip.Spec)}, nil
+		}
+		if !candidateReadyForHandoff(foip.Spec, foip.Status, candidate, time.Now()) {
+			remaining := time.Until(foip.Status.CandidateSince.Time.Add(stabilizationWindow(foip.Spec) + minHealthyWindow(foip.Spec)))
+			if remaining < time.Second {
+				remaining = time.Second
+			}
+			return ctrl.Result{RequeueAfter: remaining}, nil
+		}
 		patch := client.MergeFrom(foip.DeepCopy())
 		foip.Status.SourceNode = foip.Status.TargetNode
 		foip.Status.TargetNode = better.Name
 		foip.Status.LocalOwners = nil
+		foip.Status.CandidateSince = nil
+		foip.Status.CandidateReason = ""
 		if foip.Status.Phase == netcupv1.FailoverPhaseSelecting {
 			now := metav1.Now()
 			if err := netcupv1.AdvanceTransition(&foip.Status, netcupv1.FailoverPhaseStabilizing, now); err != nil {
