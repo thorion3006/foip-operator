@@ -36,3 +36,11 @@ rules:
   - get
   - patch
   - update
+- apiGroups:
+  - foip.noshoes.xyz
+  resources:
+  - failoverprobes
+  verbs:
+  - get
+  - list
+  - watch
