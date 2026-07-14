@@ -4,33 +4,32 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.20.1
-  name: failoverips.foip.noshoes.xyz
+  name: failoverprobes.foip.noshoes.xyz
 spec:
   group: foip.noshoes.xyz
   names:
-    kind: FailoverIp
-    listKind: FailoverIpList
-    plural: failoverips
+    kind: FailoverProbe
+    listKind: FailoverProbeList
+    plural: failoverprobes
     shortNames:
-    - foip
-    - foips
-    singular: failoverip
+    - fprobe
+    - fprobes
+    singular: failoverprobe
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
-    - jsonPath: .status.phase
+    - jsonPath: .spec.type
+      name: Type
+      type: string
+    - jsonPath: .spec.phase
       name: Phase
       type: string
-    - jsonPath: .status.targetNode
-      name: Target
-      type: string
-    - jsonPath: .status.transitionID
-      name: Transition
+    - jsonPath: .status.conditions[?(@.type=='Ready')].status
+      name: Ready
       type: string
     name: v1
     schema:
       openAPIV3Schema:
-        description: FailoverIp is the Schema for the failoverips API.
         properties:
           apiVersion:
             description: |-
@@ -50,62 +49,123 @@ spec:
           metadata:
             type: object
           spec:
-            description: FailoverIpSpec defines the desired state of FailoverIp.
+            description: FailoverProbeSpec defines a reusable, composable health check.
             properties:
-              ip:
-                description: IP is the failover IP address to manage, without a prefix
-                  length.
+              composition:
+                description: ProbeComposition determines how a set of probe results
+                  is aggregated.
+                enum:
+                - All
+                - Any
+                - Quorum
                 type: string
-              probes:
-                description: Probes is optional; an empty list enables node-health-only
-                  operation.
-                items:
-                  description: |-
-                    LocalObjectReference contains enough information to let you locate the
-                    referenced object inside the same namespace.
-                  properties:
-                    name:
-                      default: ""
-                      description: |-
-                        Name of the referent.
-                        This field is effectively required, but due to backwards compatibility is
-                        allowed to be empty. Instances of this type with an empty value here are
-                        almost certainly wrong.
-                        More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
-                      type: string
-                  type: object
-                  x-kubernetes-map-type: atomic
-                maxItems: 32
-                type: array
-              providerCooldownSeconds:
-                default: 60
-                description: ProviderCooldownSeconds is the minimum interval between
-                  route mutations.
+              credentialSecretRef:
+                description: SecretKeySelector selects a key of a Secret.
+                properties:
+                  key:
+                    description: The key of the secret to select from.  Must be a
+                      valid secret key.
+                    type: string
+                  name:
+                    default: ""
+                    description: |-
+                      Name of the referent.
+                      This field is effectively required, but due to backwards compatibility is
+                      allowed to be empty. Instances of this type with an empty value here are
+                      almost certainly wrong.
+                      More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                    type: string
+                  optional:
+                    description: Specify whether the Secret or its key must be defined
+                    type: boolean
+                required:
+                - key
+                type: object
+                x-kubernetes-map-type: atomic
+              failureThreshold:
                 format: int32
-                minimum: 0
                 type: integer
-              retryBaseSeconds:
-                default: 2
-                description: RetryBaseSeconds and RetryMaxSeconds bound transient
-                  retry delays.
+              followRedirects:
+                type: boolean
+              initialDelaySeconds:
+                format: int32
+                type: integer
+              insecureSkipVerify:
+                type: boolean
+              intervalSeconds:
+                format: int32
+                type: integer
+              kubernetes:
+                description: KubernetesReadinessTarget describes a Kubernetes object
+                  readiness check.
+                properties:
+                  apiVersion:
+                    type: string
+                  expected:
+                    type: string
+                  jsonPath:
+                    type: string
+                  kind:
+                    type: string
+                  name:
+                    type: string
+                  namespace:
+                    type: string
+                required:
+                - apiVersion
+                - kind
+                - name
+                type: object
+              phase:
+                description: ProbePhase controls when a probe participates in a transition.
+                enum:
+                - PreRoute
+                - PostRoute
+                - Continuous
+                type: string
+              quorum:
+                description: Quorum is required when composition is Quorum.
                 format: int32
                 minimum: 1
                 type: integer
-              retryMaxSeconds:
-                default: 60
+              successThreshold:
                 format: int32
-                minimum: 1
                 type: integer
-              secretName:
-                description: SecretName names the Secret containing refreshToken and
-                  userId.
+              target:
+                description: ProbeTarget describes the endpoint independently of any
+                  edge product.
+                properties:
+                  address:
+                    description: Address may contain ${targetNodeIP}, ${failoverIP},
+                      or ${dnsName}.
+                    type: string
+                  host:
+                    type: string
+                  path:
+                    type: string
+                  port:
+                    format: int32
+                    type: integer
+                  sni:
+                    type: string
+                type: object
+              timeoutSeconds:
+                format: int32
+                type: integer
+              type:
+                description: ProbeType identifies a provider-neutral executor.
+                enum:
+                - TCP
+                - TLS
+                - HTTP
+                - HTTPS
+                - Kubernetes
                 type: string
             required:
-            - ip
-            - secretName
+            - phase
+            - type
             type: object
           status:
-            description: FailoverIpStatus defines the observed state of FailoverIp.
             properties:
               conditions:
                 items:
@@ -163,66 +223,26 @@ spec:
                   - type
                   type: object
                 type: array
-              lastAttemptedProviderMutationAt:
-                format: date-time
-                type: string
-              lastConfirmedProviderMutationAt:
-                format: date-time
-                type: string
-              lastError:
-                type: string
-              lastSuccessfulPhase:
-                description: LastSuccessfulPhase is the last phase completed successfully.
-                type: string
-              lastTransitionAt:
-                format: date-time
-                type: string
-              localOwners:
-                description: LocalOwners is the set of nodes reporting local /32 ownership.
+              observations:
                 items:
-                  type: string
+                  description: ProbeObservation contains only non-sensitive result
+                    metadata.
+                  properties:
+                    name:
+                      type: string
+                    observedAt:
+                      format: date-time
+                      type: string
+                    reason:
+                      type: string
+                    success:
+                      type: boolean
+                  required:
+                  - name
+                  - observedAt
+                  - success
+                  type: object
                 type: array
-              nextEligibleMutationAt:
-                format: date-time
-                type: string
-              phase:
-                description: Phase is the durable state-machine phase.
-                enum:
-                - Idle
-                - Selecting
-                - Stabilizing
-                - PreparingTarget
-                - TargetPrepared
-                - RoutingProvider
-                - VerifyingProvider
-                - VerifyingTraffic
-                - Committing
-                - CleaningStaleOwners
-                - Succeeded
-                - Degraded
-                - Blocked
-                type: string
-              phaseStartedAt:
-                description: PhaseStartedAt records when the current phase began.
-                format: date-time
-                type: string
-              providerObservedOwner:
-                description: ProviderObservedOwner is the server ID observed from
-                  the provider.
-                type: string
-              retryCount:
-                format: int32
-                type: integer
-              sourceNode:
-                description: SourceNode is the committed owner at transition start.
-                type: string
-              targetNode:
-                description: TargetNode is the selected destination for this transition.
-                type: string
-              transitionID:
-                description: TransitionID identifies the logical handoff and fences
-                  stale reconciles.
-                type: string
             type: object
         required:
         - spec

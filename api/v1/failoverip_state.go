@@ -82,3 +82,35 @@ func AdvanceTransition(status *FailoverIpStatus, to FailoverPhase, now metav1.Ti
 	status.LastError = ""
 	return nil
 }
+
+// ValidateProbeSpec rejects ambiguous probe definitions before execution.
+func ValidateProbeSpec(spec FailoverProbeSpec) error {
+	if spec.Phase == "" || spec.Type == "" {
+		return fmt.Errorf("probe phase and type are required")
+	}
+	if spec.Composition == ProbeCompositionQuorum && spec.Quorum < 1 {
+		return fmt.Errorf("quorum must be at least one")
+	}
+	if spec.Composition != "" && spec.Composition != ProbeCompositionAll &&
+		spec.Composition != ProbeCompositionAny && spec.Composition != ProbeCompositionQuorum {
+		return fmt.Errorf("unsupported probe composition %q", spec.Composition)
+	}
+	if spec.Type == ProbeTypeKubernetes {
+		if spec.Kubernetes == nil || spec.Kubernetes.Kind == "" || spec.Kubernetes.Name == "" {
+			return fmt.Errorf("kubernetes probes require kind and name")
+		}
+		return nil
+	}
+	if spec.Target.Address == "" {
+		return fmt.Errorf("network probes require a target address")
+	}
+	if spec.Type == ProbeTypeTCP || spec.Type == ProbeTypeTLS || spec.Type == ProbeTypeHTTP || spec.Type == ProbeTypeHTTPS {
+		if spec.Target.Port < 1 || spec.Target.Port > 65535 {
+			return fmt.Errorf("network probe port must be between 1 and 65535")
+		}
+	}
+	if spec.InsecureSkipVerify && spec.Type != ProbeTypeTLS && spec.Type != ProbeTypeHTTPS {
+		return fmt.Errorf("insecureSkipVerify is only valid for TLS and HTTPS probes")
+	}
+	return nil
+}

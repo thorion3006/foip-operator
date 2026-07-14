@@ -70,7 +70,7 @@ var newFailoverIPClient = func(userID int, refreshToken string) failoverIPClient
 	return netcup.New(userID, refreshToken)
 }
 
-// +kubebuilder:rbac:groups=foip.noshoes.xyz,resources=failoverips,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=foip.noshoes.xyz,resources=failoverips;failoverprobes,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=foip.noshoes.xyz,resources=failoverips/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get
@@ -321,6 +321,24 @@ func (r *FailoverIpReconciler) nodeToFoips(ctx context.Context, _ client.Object)
 	return reqs
 }
 
+func (r *FailoverIpReconciler) probeToFoips(ctx context.Context, obj client.Object) []reconcile.Request {
+	var list netcupv1.FailoverIpList
+	if err := r.List(ctx, &list); err != nil {
+		return nil
+	}
+	var reqs []reconcile.Request
+	for i := range list.Items {
+		foip := &list.Items[i]
+		for _, ref := range foip.Spec.Probes {
+			if ref.Name == obj.GetName() && foip.Namespace == obj.GetNamespace() {
+				reqs = append(reqs, reconcile.Request{NamespacedName: types.NamespacedName{Name: foip.Name, Namespace: foip.Namespace}})
+				break
+			}
+		}
+	}
+	return reqs
+}
+
 func (r *FailoverIpReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	r.APIReader = mgr.GetAPIReader()
 	r.requeueAfter = defaultRequeueTime
@@ -330,6 +348,11 @@ func (r *FailoverIpReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			&corev1.Node{},
 			handler.EnqueueRequestsFromMapFunc(r.nodeToFoips),
 			builder.WithPredicates(nodeChangePredicate{}),
+		).
+		Watches(
+			&netcupv1.FailoverProbe{},
+			handler.EnqueueRequestsFromMapFunc(r.probeToFoips),
+			builder.WithPredicates(predicate.ResourceVersionChangedPredicate{}),
 		).
 		Named("failoverip").
 		Complete(r)

@@ -17,6 +17,7 @@ limitations under the License.
 package v1
 
 import (
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -67,6 +68,115 @@ type FailoverIpSpec struct {
 	// +kubebuilder:validation:Minimum=1
 	// +kubebuilder:default=60
 	RetryMaxSeconds int32 `json:"retryMaxSeconds,omitempty"`
+
+	// Probes is optional; an empty list enables node-health-only operation.
+	// +kubebuilder:validation:MaxItems=32
+	Probes []corev1.LocalObjectReference `json:"probes,omitempty"`
+}
+
+// ProbePhase controls when a probe participates in a transition.
+type ProbePhase string
+
+const (
+	ProbePhasePreRoute   ProbePhase = "PreRoute"
+	ProbePhasePostRoute  ProbePhase = "PostRoute"
+	ProbePhaseContinuous ProbePhase = "Continuous"
+)
+
+// ProbeComposition determines how a set of probe results is aggregated.
+type ProbeComposition string
+
+const (
+	ProbeCompositionAll    ProbeComposition = "All"
+	ProbeCompositionAny    ProbeComposition = "Any"
+	ProbeCompositionQuorum ProbeComposition = "Quorum"
+)
+
+// ProbeType identifies a provider-neutral executor.
+type ProbeType string
+
+const (
+	ProbeTypeTCP        ProbeType = "TCP"
+	ProbeTypeTLS        ProbeType = "TLS"
+	ProbeTypeHTTP       ProbeType = "HTTP"
+	ProbeTypeHTTPS      ProbeType = "HTTPS"
+	ProbeTypeKubernetes ProbeType = "Kubernetes"
+)
+
+// ProbeTarget describes the endpoint independently of any edge product.
+type ProbeTarget struct {
+	// Address may contain ${targetNodeIP}, ${failoverIP}, or ${dnsName}.
+	Address string `json:"address,omitempty"`
+	Port    int32  `json:"port,omitempty"`
+	Path    string `json:"path,omitempty"`
+	Host    string `json:"host,omitempty"`
+	SNI     string `json:"sni,omitempty"`
+}
+
+// KubernetesReadinessTarget describes a Kubernetes object readiness check.
+type KubernetesReadinessTarget struct {
+	APIVersion string `json:"apiVersion"`
+	Kind       string `json:"kind"`
+	Name       string `json:"name"`
+	Namespace  string `json:"namespace,omitempty"`
+	JSONPath   string `json:"jsonPath,omitempty"`
+	Expected   string `json:"expected,omitempty"`
+}
+
+// FailoverProbeSpec defines a reusable, composable health check.
+type FailoverProbeSpec struct {
+	// +kubebuilder:validation:Enum=PreRoute;PostRoute;Continuous
+	Phase ProbePhase `json:"phase"`
+	// +kubebuilder:validation:Enum=All;Any;Quorum
+	Composition ProbeComposition `json:"composition,omitempty"`
+	// Quorum is required when composition is Quorum.
+	// +kubebuilder:validation:Minimum=1
+	Quorum int32 `json:"quorum,omitempty"`
+	// +kubebuilder:validation:Enum=TCP;TLS;HTTP;HTTPS;Kubernetes
+	Type                ProbeType                  `json:"type"`
+	Target              ProbeTarget                `json:"target,omitempty"`
+	Kubernetes          *KubernetesReadinessTarget `json:"kubernetes,omitempty"`
+	TimeoutSeconds      int32                      `json:"timeoutSeconds,omitempty"`
+	IntervalSeconds     int32                      `json:"intervalSeconds,omitempty"`
+	SuccessThreshold    int32                      `json:"successThreshold,omitempty"`
+	FailureThreshold    int32                      `json:"failureThreshold,omitempty"`
+	InitialDelaySeconds int32                      `json:"initialDelaySeconds,omitempty"`
+	FollowRedirects     bool                       `json:"followRedirects,omitempty"`
+	InsecureSkipVerify  bool                       `json:"insecureSkipVerify,omitempty"`
+	CredentialSecretRef *corev1.SecretKeySelector  `json:"credentialSecretRef,omitempty"`
+}
+
+// ProbeObservation contains only non-sensitive result metadata.
+type ProbeObservation struct {
+	Name       string      `json:"name"`
+	Success    bool        `json:"success"`
+	Reason     string      `json:"reason,omitempty"`
+	ObservedAt metav1.Time `json:"observedAt"`
+}
+
+type FailoverProbeStatus struct {
+	Conditions   []metav1.Condition `json:"conditions,omitempty"`
+	Observations []ProbeObservation `json:"observations,omitempty"`
+}
+
+// +kubebuilder:object:root=true
+// +kubebuilder:subresource:status
+// +kubebuilder:resource:scope=Namespaced,shortName=fprobe;fprobes
+// +kubebuilder:printcolumn:name="Type",type=string,JSONPath=".spec.type"
+// +kubebuilder:printcolumn:name="Phase",type=string,JSONPath=".spec.phase"
+// +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=".status.conditions[?(@.type=='Ready')].status"
+type FailoverProbe struct {
+	metav1.TypeMeta   `json:",inline"`
+	metav1.ObjectMeta `json:"metadata,omitempty"`
+	Spec              FailoverProbeSpec   `json:"spec"`
+	Status            FailoverProbeStatus `json:"status,omitempty"`
+}
+
+// +kubebuilder:object:root=true
+type FailoverProbeList struct {
+	metav1.TypeMeta `json:",inline"`
+	metav1.ListMeta `json:"metadata,omitempty"`
+	Items           []FailoverProbe `json:"items"`
 }
 
 // FailoverIpStatus defines the observed state of FailoverIp.
@@ -124,5 +234,5 @@ type FailoverIpList struct {
 }
 
 func init() {
-	SchemeBuilder.Register(&FailoverIp{}, &FailoverIpList{})
+	SchemeBuilder.Register(&FailoverIp{}, &FailoverIpList{}, &FailoverProbe{}, &FailoverProbeList{})
 }
