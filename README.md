@@ -1,8 +1,9 @@
 # foip-operator
 
-This operator assigns a netcup failover IP to the healthiest node in a Kubernetes
-cluster. It is intended for netcup-hosted control planes or services that need a simple
-failover target without adding a separate load balancer.
+This operator manages a netcup failover IP with a persisted, restart-safe state
+machine. It selects among annotated Kubernetes nodes, verifies candidate readiness
+before touching the provider, supports optional reusable probes, and preserves
+ownership across controller restarts or leader changes.
 
 The project is built in Go using [kubebuilder](https://book.kubebuilder.io/) and the
 [netcup SCP REST API](https://www.netcup.com/en/helpcenter/documentation/servercontrolpanel/api).
@@ -41,15 +42,15 @@ Generate an OAuth2 offline refresh token using the included helper:
 go run ./cmd/netcup-auth/ --namespace <namespace> --secret-name netcup-scp-credentials
 ```
 
-This opens a browser for the netcup device login flow, then prints a ready-to-paste 
+This opens a browser for the netcup device login flow, then prints a ready-to-paste
 `kubectl create secret` command containing `userId` and `refreshToken`.
 
 ### 2. Node annotations
 
-The operator identifies which netcup server each Kubernetes node corresponds to via 
-two annotations. When you view your server in the new SCP UI (in beta as of writing) you
-can get the server id from the URL and the primary MAC in the network section.
-Then you can annotate your nodes like this:
+The operator identifies which netcup server each Kubernetes node corresponds to via
+two annotations. When you view your server in the SCP UI you can get the server ID
+from the URL and the primary MAC in the network section. Then you can annotate your
+nodes like this:
 
 ```sh
 kubectl annotate node <nodename> \
@@ -58,6 +59,9 @@ kubectl annotate node <nodename> \
 ```
 
 Only nodes with both annotations are considered for assignment.
+
+The controller uses those annotations to choose the target node, and the node-interface
+workload uses the MAC address to manage the local `/32`.
 
 
 ### 3. Install the chart
@@ -117,6 +121,11 @@ metadata:
 spec:
   ip: 1.2.3.4
   secretName: netcup-scp-credentials
+  # Optional safety knobs:
+  # recoveryPolicy: HoldDualOwnership
+  # probeComposition: All
+  # probes:
+  #   - shared-http-check
 ```
 
 ```sh
@@ -129,10 +138,12 @@ kubectl apply -f failoverip.yaml
 kubectl describe foip my-failover-ip
 ```
 
-Inspect `status.phase`, `status.transitionID`, `status.targetNode`, and the
-`Ready`, `ProviderConverged`, and `OwnershipConverged` Conditions. A successful
-handoff requires exactly one reported local owner; `Degraded` and `Blocked`
-are explicit safety states, not transient log messages.
+Inspect `status.phase`, `status.transitionID`, `status.sourceNode`,
+`status.targetNode`, `status.providerObservedOwner`, `status.localOwners`, and the
+`Ready`, `Stabilizing`, `TargetPrepared`, `ProviderConverged`,
+`TrafficVerified`, and `OwnershipConverged` Conditions. A successful handoff
+requires exactly one reported local owner; `Degraded` and `Blocked` are explicit
+safety states, not transient log messages.
 
 Set `spec.recoveryPolicy` to `HoldDualOwnership` (the safe default),
 `RollbackProvider`, `CommitDegraded`, or `ManualIntervention` to choose the
@@ -159,6 +170,10 @@ kubectl annotate foip my-failover-ip \
   foip.noshoes.xyz/reconcile="$(date +%s)" --overwrite
 ```
 
+Reusable `FailoverProbe` objects can be installed once and referenced from
+multiple `FailoverIp` resources. The chart supports creating both kinds of
+resources at install time with `failoverIps` and `failoverProbes`.
+
 ### Troubleshooting
 
 Check logs across all operator pods:
@@ -182,9 +197,9 @@ spec:
 
 ### Observability
 
-The operator exposes its operational metrics on the existing `/metrics` endpoint, so
-the controller Deployment can still be scraped by Prometheus through the bundled
-`ServiceMonitor`.
+The operator exposes its operational metrics on the existing `/metrics` endpoint,
+so the controller Deployment can still be scraped by Prometheus through the
+bundled `ServiceMonitor`.
 
 Tracing is enabled through OpenTelemetry environment variables. Set an OTLP endpoint
 from your deployment tooling and the binaries will export spans automatically:
@@ -196,7 +211,7 @@ OTEL_RESOURCE_ATTRIBUTES=service.version=1.0.0,foip.component=foip
 ```
 
 The Helm chart wires the service name and resource attributes by default for both
-the controller and node-interface workloads. If you deploy with the raw kustomize
+the controller and node-interface workloads. If you deploy with the raw Kustomize
 manifests, add the same environment variables to your pod specs.
 
 In the Helm chart you can also toggle observability features directly:
