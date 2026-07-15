@@ -90,3 +90,19 @@ func FuzzValidateStatusNeverPanics(f *testing.F) {
 		_ = ValidateStatus(status)
 	})
 }
+
+func FuzzValidateStatusRejectsImpossibleSucceededOwnership(f *testing.F) {
+	f.Add("transition", "node-a", "node-b")
+	f.Add("transition", "node-a", "node-a")
+	f.Fuzz(func(t *testing.T, transitionID, target, owner string) {
+		status := FailoverIpStatus{TransitionID: transitionID, Phase: FailoverPhaseSucceeded, TargetNode: target}
+		if owner != "" {
+			status.LocalOwners = []string{owner}
+		}
+		valid := ValidateStatus(status) == nil
+		wantValid := transitionID != "" && target != "" && owner == target
+		if valid != wantValid {
+			t.Fatalf("ValidateStatus(%#v) valid=%v, want %v", status, valid, wantValid)
+		}
+	})
+}
