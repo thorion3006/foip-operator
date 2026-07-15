@@ -232,3 +232,168 @@ func TestRestartResume_DoesNotDuplicateProviderMutation(t *testing.T) {
 		t.Fatalf("provider mutations after restart = %d, want exactly 1", fakeProvider.routeCalls)
 	}
 }
+
+func TestRestartResume_UsesPersistedStatusFromEnvtest(t *testing.T) {
+	ctx := context.Background()
+	const (
+		name       = "envtest-restart-resource"
+		namespace  = "default"
+		nodeName   = "envtest-restart-target"
+		secretName = "envtest-restart-secret"
+	)
+
+	fakeProvider := &countingFailoverIPClient{fakeFailoverIPClient: fakeFailoverIPClient{
+		findFOIPID:  17,
+		serverID:    101,
+		routeTarget: 202,
+	}}
+	previousFactory := newFailoverIPClient
+	newFailoverIPClient = func(int, string) failoverIPClient { return fakeProvider }
+	t.Cleanup(func() { newFailoverIPClient = previousFactory })
+
+	resource := &netcupv1.FailoverIp{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
+		Spec:       netcupv1.FailoverIpSpec{IP: "192.0.2.12", SecretName: secretName},
+	}
+	if err := k8sClient.Create(ctx, resource); err != nil {
+		t.Fatalf("create failoverip: %v", err)
+	}
+	t.Cleanup(func() { _ = k8sClient.Delete(ctx, resource) })
+
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: secretName, Namespace: namespace},
+		Data:       map[string][]byte{"userId": []byte("42"), "refreshToken": []byte("token")},
+	}
+	if err := k8sClient.Create(ctx, secret); err != nil {
+		t.Fatalf("create secret: %v", err)
+	}
+	t.Cleanup(func() { _ = k8sClient.Delete(ctx, secret) })
+
+	node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{
+		Name:        nodeName,
+		Annotations: map[string]string{netcupv1.ServerIDAnnotation: "202"},
+	}}
+	if err := k8sClient.Create(ctx, node); err != nil {
+		t.Fatalf("create node: %v", err)
+	}
+	t.Cleanup(func() { _ = k8sClient.Delete(ctx, node) })
+
+	request := reconcile.Request{NamespacedName: types.NamespacedName{Name: name, Namespace: namespace}}
+	var persisted netcupv1.FailoverIp
+	if err := k8sClient.Get(ctx, request.NamespacedName, &persisted); err != nil {
+		t.Fatalf("get created failoverip: %v", err)
+	}
+	persisted.Status = netcupv1.FailoverIpStatus{
+		TransitionID: "envtest-restart-transition",
+		Phase:        netcupv1.FailoverPhaseRoutingProvider,
+		TargetNode:   nodeName,
+		LocalOwners:  []string{nodeName},
+	}
+	if err := k8sClient.Status().Update(ctx, &persisted); err != nil {
+		t.Fatalf("persist routing status: %v", err)
+	}
+
+	first := &FailoverIpReconciler{Client: k8sClient, APIReader: k8sClient, Scheme: k8sClient.Scheme()}
+	if _, err := first.Reconcile(ctx, request); err != nil {
+		t.Fatalf("reconcile before restart: %v", err)
+	}
+	if fakeProvider.routeCalls != 1 {
+		t.Fatalf("provider mutations before restart = %d, want 1", fakeProvider.routeCalls)
+	}
+	if err := k8sClient.Get(ctx, request.NamespacedName, &persisted); err != nil {
+		t.Fatalf("get status after first reconcile: %v", err)
+	}
+	if persisted.Status.Phase != netcupv1.FailoverPhaseVerifyingProvider {
+		t.Fatalf("persisted phase = %q, want %q", persisted.Status.Phase, netcupv1.FailoverPhaseVerifyingProvider)
+	}
+	if persisted.Status.TransitionID != "envtest-restart-transition" {
+		t.Fatalf("persisted transition ID = %q, want durable transition identity", persisted.Status.TransitionID)
+	}
+
+	resumed := &FailoverIpReconciler{Client: k8sClient, APIReader: k8sClient, Scheme: k8sClient.Scheme()}
+	if _, err := resumed.Reconcile(ctx, request); err != nil {
+		t.Fatalf("reconcile after restart: %v", err)
+	}
+	if fakeProvider.routeCalls != 1 {
+		t.Fatalf("provider mutations after restart = %d, want exactly 1", fakeProvider.routeCalls)
+	}
+}
+
+func TestLeaderChange_FencesOutOfBandProviderOwnerFromPersistedStatus(t *testing.T) {
+	ctx := context.Background()
+	const (
+		name       = "envtest-fence-resource"
+		namespace  = "default"
+		nodeName   = "envtest-fence-target"
+		secretName = "envtest-fence-secret"
+	)
+
+	fakeProvider := &countingFailoverIPClient{fakeFailoverIPClient: fakeFailoverIPClient{
+		findFOIPID:  17,
+		serverID:    202,
+		routeTarget: 303,
+	}}
+	previousFactory := newFailoverIPClient
+	newFailoverIPClient = func(int, string) failoverIPClient { return fakeProvider }
+	t.Cleanup(func() { newFailoverIPClient = previousFactory })
+
+	resource := &netcupv1.FailoverIp{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
+		Spec:       netcupv1.FailoverIpSpec{IP: "192.0.2.13", SecretName: secretName},
+	}
+	if err := k8sClient.Create(ctx, resource); err != nil {
+		t.Fatalf("create failoverip: %v", err)
+	}
+	t.Cleanup(func() { _ = k8sClient.Delete(ctx, resource) })
+
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: secretName, Namespace: namespace},
+		Data:       map[string][]byte{"userId": []byte("42"), "refreshToken": []byte("token")},
+	}
+	if err := k8sClient.Create(ctx, secret); err != nil {
+		t.Fatalf("create secret: %v", err)
+	}
+	t.Cleanup(func() { _ = k8sClient.Delete(ctx, secret) })
+
+	node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{
+		Name:        nodeName,
+		Annotations: map[string]string{netcupv1.ServerIDAnnotation: "303"},
+	}}
+	if err := k8sClient.Create(ctx, node); err != nil {
+		t.Fatalf("create node: %v", err)
+	}
+	t.Cleanup(func() { _ = k8sClient.Delete(ctx, node) })
+
+	request := reconcile.Request{NamespacedName: types.NamespacedName{Name: name, Namespace: namespace}}
+	var persisted netcupv1.FailoverIp
+	if err := k8sClient.Get(ctx, request.NamespacedName, &persisted); err != nil {
+		t.Fatalf("get created failoverip: %v", err)
+	}
+	persisted.Status = netcupv1.FailoverIpStatus{
+		TransitionID:          "envtest-fence-transition",
+		Phase:                 netcupv1.FailoverPhaseRoutingProvider,
+		TargetNode:            nodeName,
+		LocalOwners:           []string{nodeName},
+		ProviderObservedOwner: "101",
+	}
+	if err := k8sClient.Status().Update(ctx, &persisted); err != nil {
+		t.Fatalf("persist fencing status: %v", err)
+	}
+
+	resumed := &FailoverIpReconciler{Client: k8sClient, APIReader: k8sClient, Scheme: k8sClient.Scheme()}
+	if _, err := resumed.Reconcile(ctx, request); err == nil {
+		t.Fatal("reconcile unexpectedly accepted an out-of-band provider owner")
+	}
+	if fakeProvider.routeCalls != 0 {
+		t.Fatalf("provider mutations after fencing = %d, want 0", fakeProvider.routeCalls)
+	}
+	if err := k8sClient.Get(ctx, request.NamespacedName, &persisted); err != nil {
+		t.Fatalf("get fenced status: %v", err)
+	}
+	if persisted.Status.Phase != netcupv1.FailoverPhaseBlocked {
+		t.Fatalf("fenced phase = %q, want %q", persisted.Status.Phase, netcupv1.FailoverPhaseBlocked)
+	}
+	if persisted.Status.ProviderObservedOwner != "101" {
+		t.Fatalf("fenced observed owner = %q, want persisted owner 101", persisted.Status.ProviderObservedOwner)
+	}
+}

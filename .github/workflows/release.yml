@@ -292,4 +292,4 @@ jobs:
         run: ./hack/validate-packaging.sh
 
       - name: Run deterministic restart and release checks
-        run: go test ./test/e2e -run 'TestPersistedState|TestReleaseWorkflow' -count=1 -v
+        run: go test ./test/e2e -run 'TestReleaseWorkflow' -count=1 -v
