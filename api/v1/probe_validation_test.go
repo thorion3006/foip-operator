@@ -44,3 +44,15 @@ func TestValidateProbeSpecAcceptsHTTPMatchingConfiguration(t *testing.T) {
 		t.Fatalf("valid HTTP matching configuration rejected: %v", err)
 	}
 }
+
+func FuzzValidateProbeSpecNeverPanics(f *testing.F) {
+	f.Add("PreRoute", "TCP", "127.0.0.1", int32(443))
+	f.Add("Unknown", "Unknown", "${targetNodeIP}", int32(-1))
+	f.Fuzz(func(t *testing.T, phase, probeType, address string, port int32) {
+		_ = ValidateProbeSpec(FailoverProbeSpec{
+			Phase:  ProbePhase(phase),
+			Type:   ProbeType(probeType),
+			Target: ProbeTarget{Address: address, Port: port},
+		})
+	})
+}
