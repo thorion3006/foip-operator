@@ -195,6 +195,20 @@ func (r *FailoverIpReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	}
 	candidates := candidateNodes(nodeList.Items)
 	better := betterNode(candidates, foip.Status.TargetNode)
+	if better == nil && foip.Status.Phase == netcupv1.FailoverPhaseStabilizing && foip.Status.CandidateSince != nil {
+		patch := client.MergeFrom(foip.DeepCopy())
+		now := metav1.Now()
+		if err := netcupv1.AdvanceTransition(&foip.Status, netcupv1.FailoverPhaseSelecting, now); err != nil {
+			return ctrl.Result{}, err
+		}
+		foip.Status.CandidateSince = nil
+		foip.Status.CandidateReason = "current owner recovered during stabilization"
+		netcupv1.SetCondition(&foip.Status, netcupv1.ConditionStabilizing, metav1.ConditionFalse, "CandidateRecovered", "Canceled candidate after current owner recovery", now)
+		if err := r.Status().Patch(ctx, &foip, patch); err != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{RequeueAfter: preparationPollInterval}, nil
+	}
 
 	if better != nil && better.Name != foip.Status.TargetNode {
 		if foip.Status.Phase == netcupv1.FailoverPhaseSucceeded || foip.Status.Phase == netcupv1.FailoverPhaseDegraded {
