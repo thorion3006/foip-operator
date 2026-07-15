@@ -117,6 +117,9 @@ func (r *FailoverIpReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		}
 		return ctrl.Result{RequeueAfter: preparationPollInterval}, nil
 	}
+	if err := netcupv1.ValidateFailoverIpSpec(foip.Spec); err != nil {
+		return ctrl.Result{}, r.persistInvalidSpec(ctx, &foip, err)
+	}
 	if err := netcupv1.ValidateStatus(foip.Status); err != nil {
 		patch := client.MergeFrom(foip.DeepCopy())
 		now := metav1.Now()
@@ -474,6 +477,19 @@ func (r *FailoverIpReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		return ctrl.Result{}, err
 	}
 	return ctrl.Result{}, fmt.Errorf("unexpected persisted phase")
+}
+
+func (r *FailoverIpReconciler) persistInvalidSpec(ctx context.Context, foip *netcupv1.FailoverIp, cause error) error {
+	patch := client.MergeFrom(foip.DeepCopy())
+	now := metav1.Now()
+	foip.Status.Phase = netcupv1.FailoverPhaseBlocked
+	foip.Status.LastError = "invalid failover specification"
+	netcupv1.SetCondition(&foip.Status, netcupv1.ConditionBlocked, metav1.ConditionTrue, "InvalidSpec", "Failover specification is invalid", now)
+	r.emitEvent(foip, corev1.EventTypeWarning, "InvalidSpec", "Blocked invalid failover specification")
+	if err := r.Status().Patch(ctx, foip, patch); err != nil {
+		return err
+	}
+	return cause
 }
 
 func (r *FailoverIpReconciler) emitEvent(foip *netcupv1.FailoverIp, eventType, reason, message string) {

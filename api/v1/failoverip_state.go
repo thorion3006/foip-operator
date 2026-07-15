@@ -131,6 +131,17 @@ func ValidateProbeSpec(spec FailoverProbeSpec) error {
 	return nil
 }
 
+func ValidateFailoverIpSpec(spec FailoverIpSpec) error {
+	if spec.ProbeComposition == ProbeCompositionQuorum && spec.ProbeQuorum < 1 {
+		return fmt.Errorf("probeQuorum must be at least one for quorum composition")
+	}
+	if spec.ProbeComposition != "" && spec.ProbeComposition != ProbeCompositionAll &&
+		spec.ProbeComposition != ProbeCompositionAny && spec.ProbeComposition != ProbeCompositionQuorum {
+		return fmt.Errorf("unsupported probe composition %q", spec.ProbeComposition)
+	}
+	return nil
+}
+
 // SetCondition updates a stable condition without copying sensitive details
 // into Kubernetes status or telemetry.
 func SetCondition(status *FailoverIpStatus, conditionType string, conditionStatus metav1.ConditionStatus, reason, message string, now metav1.Time) {

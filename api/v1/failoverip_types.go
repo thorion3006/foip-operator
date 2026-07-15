@@ -99,6 +99,10 @@ type FailoverIpSpec struct {
 	// +kubebuilder:validation:Enum=HoldDualOwnership;RollbackProvider;CommitDegraded;ManualIntervention
 	// +kubebuilder:default=HoldDualOwnership
 	RecoveryPolicy RecoveryPolicy `json:"recoveryPolicy,omitempty"`
+	// +kubebuilder:validation:Enum=All;Any;Quorum
+	ProbeComposition ProbeComposition `json:"probeComposition,omitempty"`
+	// +kubebuilder:validation:Minimum=1
+	ProbeQuorum int32 `json:"probeQuorum,omitempty"`
 
 	// Probes is optional; an empty list enables node-health-only operation.
 	// +kubebuilder:validation:MaxItems=32

@@ -70,6 +70,18 @@ spec:
                 type: integer
               preferCurrentOwner:
                 type: boolean
+              probeComposition:
+                description: ProbeComposition determines how a set of probe results
+                  is aggregated.
+                enum:
+                - All
+                - Any
+                - Quorum
+                type: string
+              probeQuorum:
+                format: int32
+                minimum: 1
+                type: integer
               probes:
                 description: Probes is optional; an empty list enables node-health-only
                   operation.

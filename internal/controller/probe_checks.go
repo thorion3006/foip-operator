@@ -14,8 +14,11 @@ func evaluateProbePhase(ctx context.Context, reader client.Reader, foip netcupv1
 		return nil
 	}
 	results := make([]probe.Result, 0, len(foip.Spec.Probes))
-	composition := netcupv1.ProbeCompositionAll
-	var quorum int32
+	composition := foip.Spec.ProbeComposition
+	if composition == "" {
+		composition = netcupv1.ProbeCompositionAll
+	}
+	quorum := foip.Spec.ProbeQuorum
 	for _, ref := range foip.Spec.Probes {
 		var resource netcupv1.FailoverProbe
 		if err := reader.Get(ctx, client.ObjectKey{Name: ref.Name, Namespace: foip.Namespace}, &resource); err != nil {
@@ -24,7 +27,7 @@ func evaluateProbePhase(ctx context.Context, reader client.Reader, foip netcupv1
 		if resource.Spec.Phase != phase && resource.Spec.Phase != netcupv1.ProbePhaseContinuous {
 			continue
 		}
-		if resource.Spec.Composition != "" {
+		if foip.Spec.ProbeComposition == "" && resource.Spec.Composition != "" {
 			composition = resource.Spec.Composition
 			quorum = resource.Spec.Quorum
 		}
