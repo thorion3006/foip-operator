@@ -7,6 +7,21 @@ on:
   pull_request:
 
 jobs:
+  deterministic-validation:
+    name: Validate restart and release contracts
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone the code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Run deterministic validation checks
+        run: go test ./test/e2e -run 'TestPersistedState|TestReleaseWorkflow' -count=1 -v
+
   test-e2e:
     name: Run on Ubuntu
     runs-on: ubuntu-latest
