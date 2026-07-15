@@ -85,3 +85,23 @@ func TestEvaluateProbePhasePersistsRedactedObservation(t *testing.T) {
 		t.Fatalf("observation was not persisted: %#v", observed.Status.Observations)
 	}
 }
+
+func TestProbeChangeRequeuesEveryReferencingFailoverIP(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := netcupv1.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithRuntimeObjects(
+		&netcupv1.FailoverIp{ObjectMeta: metav1.ObjectMeta{Name: "first", Namespace: "default"}, Spec: netcupv1.FailoverIpSpec{Probes: []corev1.LocalObjectReference{{Name: "shared"}}}},
+		&netcupv1.FailoverIp{ObjectMeta: metav1.ObjectMeta{Name: "second", Namespace: "default"}, Spec: netcupv1.FailoverIpSpec{Probes: []corev1.LocalObjectReference{{Name: "shared"}}}},
+		&netcupv1.FailoverIp{ObjectMeta: metav1.ObjectMeta{Name: "other-namespace", Namespace: "other"}, Spec: netcupv1.FailoverIpSpec{Probes: []corev1.LocalObjectReference{{Name: "shared"}}}},
+	).Build()
+	reconciler := &FailoverIpReconciler{Client: fakeClient, APIReader: fakeClient, Scheme: scheme}
+	requests := reconciler.probeToFoips(context.Background(), &netcupv1.FailoverProbe{ObjectMeta: metav1.ObjectMeta{Name: "shared", Namespace: "default"}})
+	if len(requests) != 2 {
+		t.Fatalf("requeue requests = %d, want 2", len(requests))
+	}
+	if requests[0].Namespace != "default" || requests[1].Namespace != "default" {
+		t.Fatalf("cross-namespace probe reference leaked: %#v", requests)
+	}
+}
