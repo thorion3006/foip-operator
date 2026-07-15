@@ -23,6 +23,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -80,6 +81,16 @@ func classifyHTTPError(status int) *ProviderError {
 	return &ProviderError{Class: class, StatusCode: status, Message: fmt.Sprintf("provider request failed with HTTP %d", status)}
 }
 
+func parseRetryAfter(value string, now time.Time) time.Duration {
+	if seconds, err := strconv.Atoi(strings.TrimSpace(value)); err == nil && seconds >= 0 {
+		return time.Duration(seconds) * time.Second
+	}
+	if when, err := http.ParseTime(value); err == nil && when.After(now) {
+		return when.Sub(now)
+	}
+	return 0
+}
+
 func New(userID int, refreshToken string) *Client {
 	return &Client{
 		userID:       userID,
@@ -117,6 +128,7 @@ func (c *Client) token(ctx context.Context) (string, error) {
 	if resp.StatusCode/100 != 2 {
 		providerErr := classifyHTTPError(resp.StatusCode)
 		providerErr.Message = fmt.Sprintf("SCP token refresh failed with HTTP %d", resp.StatusCode)
+		providerErr.RetryAfter = parseRetryAfter(resp.Header.Get("Retry-After"), time.Now())
 		return "", providerErr
 	}
 	var tr struct {
@@ -132,14 +144,14 @@ func (c *Client) token(ctx context.Context) (string, error) {
 }
 
 // do executes an authenticated request against the SCP REST API.
-func (c *Client) do(ctx context.Context, method, path string, body io.Reader) ([]byte, int, error) {
+func (c *Client) do(ctx context.Context, method, path string, body io.Reader) ([]byte, int, http.Header, error) {
 	tok, err := c.token(ctx)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, nil, err
 	}
 	req, err := http.NewRequestWithContext(ctx, method, scpBase+path, body)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, nil, err
 	}
 	req.Header.Set("Authorization", "Bearer "+tok)
 	req.Header.Set("Accept", "application/json")
@@ -148,14 +160,14 @@ func (c *Client) do(ctx context.Context, method, path string, body io.Reader) ([
 	}
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return nil, 0, fmt.Errorf("SCP %s %s: %w", method, path, err)
+		return nil, 0, nil, fmt.Errorf("SCP %s %s: %w", method, path, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, resp.StatusCode, fmt.Errorf("reading SCP response: %w", err)
+		return nil, resp.StatusCode, resp.Header, fmt.Errorf("reading SCP response: %w", err)
 	}
-	return data, resp.StatusCode, nil
+	return data, resp.StatusCode, resp.Header, nil
 }
 
 type failoverIPv4 struct {
@@ -169,12 +181,14 @@ type failoverIPv4 struct {
 // is currently routed to (0 if not yet routed anywhere).
 func (c *Client) FindFailoverIP(ctx context.Context, ip string) (foipID int, serverID int, err error) {
 	path := fmt.Sprintf("/api/v1/users/%d/failoverips/v4?ip=%s", c.userID, url.QueryEscape(ip))
-	data, status, err := c.do(ctx, http.MethodGet, path, nil)
+	data, status, headers, err := c.do(ctx, http.MethodGet, path, nil)
 	if err != nil {
 		return 0, 0, err
 	}
 	if status != http.StatusOK {
-		return 0, 0, classifyHTTPError(status)
+		providerErr := classifyHTTPError(status)
+		providerErr.RetryAfter = parseRetryAfter(headers.Get("Retry-After"), time.Now())
+		return 0, 0, providerErr
 	}
 	var ips []failoverIPv4
 	if err := json.Unmarshal(data, &ips); err != nil {
@@ -194,12 +208,14 @@ func (c *Client) FindFailoverIP(ctx context.Context, ip string) (foipID int, ser
 func (c *Client) RouteFailoverIP(ctx context.Context, foipID, targetServerID int) error {
 	path := fmt.Sprintf("/api/v1/users/%d/failoverips/v4/%d", c.userID, foipID)
 	body := fmt.Sprintf(`{"serverId":%d}`, targetServerID)
-	data, status, err := c.do(ctx, http.MethodPatch, path, strings.NewReader(body))
+	data, status, headers, err := c.do(ctx, http.MethodPatch, path, strings.NewReader(body))
 	if err != nil {
 		return err
 	}
 	if status != http.StatusAccepted {
-		return classifyHTTPError(status)
+		providerErr := classifyHTTPError(status)
+		providerErr.RetryAfter = parseRetryAfter(headers.Get("Retry-After"), time.Now())
+		return providerErr
 	}
 	var task struct {
 		UUID string `json:"uuid"`
@@ -218,7 +234,7 @@ func (c *Client) waitForTask(ctx context.Context, uuid string) error {
 			return ctx.Err()
 		case <-time.After(2 * time.Second):
 		}
-		data, status, err := c.do(ctx, http.MethodGet, path, nil)
+		data, status, _, err := c.do(ctx, http.MethodGet, path, nil)
 		if err != nil {
 			return err
 		}
