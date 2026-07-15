@@ -59,9 +59,9 @@ func execute(ctx context.Context, spec netcupv1.FailoverProbeSpec, credential st
 
 	switch spec.Type {
 	case netcupv1.ProbeTypeTCP:
-		return tcp(ctx, spec.Target, false, spec.InsecureSkipVerify, caBundle)
+		return tcp(ctx, spec.Target, spec.NetworkPolicy, false, spec.InsecureSkipVerify, caBundle)
 	case netcupv1.ProbeTypeTLS:
-		return tcp(ctx, spec.Target, true, spec.InsecureSkipVerify, caBundle)
+		return tcp(ctx, spec.Target, spec.NetworkPolicy, true, spec.InsecureSkipVerify, caBundle)
 	case netcupv1.ProbeTypeHTTP, netcupv1.ProbeTypeHTTPS:
 		return httpProbe(ctx, spec, credential, caBundle)
 	default:
@@ -69,9 +69,8 @@ func execute(ctx context.Context, spec netcupv1.FailoverProbeSpec, credential st
 	}
 }
 
-func tcp(ctx context.Context, target netcupv1.ProbeTarget, tlsMode, insecure bool, caBundle []byte) Result {
+func tcp(ctx context.Context, target netcupv1.ProbeTarget, policy netcupv1.ProbeNetworkPolicy, tlsMode, insecure bool, caBundle []byte) Result {
 	address := net.JoinHostPort(target.Address, strconv.Itoa(int(target.Port)))
-	dialer := &net.Dialer{}
 	var conn net.Conn
 	var err error
 	if tlsMode {
@@ -79,9 +78,18 @@ func tcp(ctx context.Context, target netcupv1.ProbeTarget, tlsMode, insecure boo
 		if configErr != nil {
 			return Result{Reason: configErr.Error()}
 		}
-		conn, err = (&tls.Dialer{NetDialer: dialer, Config: config}).DialContext(ctx, "tcp", address) // #nosec G402 -- insecure mode is an explicit API opt-in
+		var raw net.Conn
+		raw, err = dialAllowedContext(ctx, "tcp", address, policy)
+		if err == nil {
+			tlsConn := tls.Client(raw, config) // #nosec G402 -- insecure mode is an explicit API opt-in
+			conn = tlsConn
+			err = tlsConn.HandshakeContext(ctx)
+			if err != nil {
+				_ = conn.Close()
+			}
+		}
 	} else {
-		conn, err = dialer.DialContext(ctx, "tcp", address)
+		conn, err = dialAllowedContext(ctx, "tcp", address, policy)
 	}
 	if err != nil {
 		return Result{Reason: "connection failed"}
@@ -143,7 +151,9 @@ func httpProbe(ctx context.Context, spec netcupv1.FailoverProbeSpec, credential 
 	if configErr != nil {
 		return Result{Reason: configErr.Error()}
 	}
-	transport := &http.Transport{TLSClientConfig: config} // #nosec G402 -- insecure mode is an explicit API opt-in
+	transport := &http.Transport{TLSClientConfig: config, DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
+		return dialAllowedContext(ctx, network, address, spec.NetworkPolicy)
+	}} // #nosec G402 -- insecure mode is an explicit API opt-in
 	if !spec.FollowRedirects {
 		transport.DisableKeepAlives = true
 	}

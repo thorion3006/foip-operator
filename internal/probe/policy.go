@@ -26,43 +26,82 @@ func validateTarget(ctx context.Context, target netcupv1.ProbeTarget, policy net
 	if target.Address == "" {
 		return fmt.Errorf("probe target address is empty")
 	}
-	if parsed, err := url.Parse(target.Address); err == nil && parsed.User != nil {
-		return fmt.Errorf("probe target userinfo is not allowed")
-	}
-	lookupAddress := target.Address
-	if parsed, err := url.Parse(target.Address); err == nil && parsed.Scheme != "" {
-		if parsed.Hostname() == "" {
-			return fmt.Errorf("probe target URL has no host")
-		}
-		lookupAddress = parsed.Hostname()
-	}
-	ips, err := net.DefaultResolver.LookupIP(ctx, "ip", lookupAddress)
+	lookupAddress, err := targetHostname(target.Address)
 	if err != nil {
-		if parsed := net.ParseIP(lookupAddress); parsed != nil {
+		return err
+	}
+	ips, err := allowedTargetIPs(ctx, lookupAddress, policy)
+	if err != nil {
+		return err
+	}
+	if len(ips) == 0 {
+		return fmt.Errorf("probe target has no resolved addresses")
+	}
+	return nil
+}
+
+func targetHostname(address string) (string, error) {
+	if parsed, err := url.Parse(address); err == nil && parsed.Scheme != "" {
+		if parsed.User != nil {
+			return "", fmt.Errorf("probe target userinfo is not allowed")
+		}
+		if parsed.Hostname() == "" {
+			return "", fmt.Errorf("probe target URL has no host")
+		}
+		return parsed.Hostname(), nil
+	}
+	return address, nil
+}
+
+func allowedTargetIPs(ctx context.Context, address string, policy netcupv1.ProbeNetworkPolicy) ([]net.IP, error) {
+	ips, err := net.DefaultResolver.LookupIP(ctx, "ip", address)
+	if err != nil {
+		if parsed := net.ParseIP(address); parsed != nil {
 			ips = []net.IP{parsed}
 		} else {
-			return fmt.Errorf("resolving probe target: %w", err)
+			return nil, fmt.Errorf("resolving probe target: %w", err)
 		}
 	}
 	allowed, err := parseCIDRs(policy.AllowedCIDRs)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	denied, err := parseCIDRs(policy.DeniedCIDRs)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	for _, ip := range ips {
 		for _, network := range denied {
 			if network.Contains(ip) {
-				return fmt.Errorf("probe target resolves to denied network")
+				return nil, fmt.Errorf("probe target resolves to denied network")
 			}
 		}
 		if !policy.AllowPrivateNetworks && isBlocked(ip) && !containsIP(allowed, ip) {
-			return fmt.Errorf("probe target resolves to a sensitive network")
+			return nil, fmt.Errorf("probe target resolves to a sensitive network")
 		}
 	}
-	return nil
+	return ips, nil
+}
+
+func dialAllowedContext(ctx context.Context, network, address string, policy netcupv1.ProbeNetworkPolicy) (net.Conn, error) {
+	host, port, err := net.SplitHostPort(address)
+	if err != nil {
+		return nil, fmt.Errorf("invalid probe endpoint")
+	}
+	ips, err := allowedTargetIPs(ctx, host, policy)
+	if err != nil {
+		return nil, err
+	}
+	dialer := &net.Dialer{}
+	var lastErr error
+	for _, ip := range ips {
+		conn, dialErr := dialer.DialContext(ctx, network, net.JoinHostPort(ip.String(), port))
+		if dialErr == nil {
+			return conn, nil
+		}
+		lastErr = dialErr
+	}
+	return nil, lastErr
 }
 
 func parseCIDRs(values []string) ([]*net.IPNet, error) {
