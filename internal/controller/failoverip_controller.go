@@ -103,6 +103,7 @@ func (r *FailoverIpReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		patch := client.MergeFrom(foip.DeepCopy())
 		now := metav1.Now()
 		netcupv1.StartTransition(&foip.Status, now)
+		netcupv1.SetCondition(&foip.Status, netcupv1.ConditionReady, metav1.ConditionFalse, "Selecting", "Selecting a failover target", now)
 		if err := r.Status().Patch(ctx, &foip, patch); err != nil {
 			return ctrl.Result{}, err
 		}
@@ -137,6 +138,7 @@ func (r *FailoverIpReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		patch := client.MergeFrom(foip.DeepCopy())
 		foip.Status.Phase = netcupv1.FailoverPhaseBlocked
 		foip.Status.LastError = err.Error()
+		netcupv1.SetCondition(&foip.Status, netcupv1.ConditionBlocked, metav1.ConditionTrue, "ProviderOwnershipChanged", "Provider ownership changed out of band", metav1.Now())
 		if patchErr := r.Status().Patch(ctx, &foip, patch); patchErr != nil {
 			return ctrl.Result{}, patchErr
 		}
@@ -286,6 +288,7 @@ func (r *FailoverIpReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		patch := client.MergeFrom(foip.DeepCopy())
 		foip.Status.LastError = err.Error()
 		foip.Status.Phase = netcupv1.FailoverPhaseDegraded
+		netcupv1.SetCondition(&foip.Status, netcupv1.ConditionDegraded, metav1.ConditionTrue, "TrafficProbeFailed", "Post-route traffic verification failed", metav1.Now())
 		if patchErr := r.Status().Patch(ctx, &foip, patch); patchErr != nil {
 			return ctrl.Result{}, patchErr
 		}
@@ -300,6 +303,9 @@ func (r *FailoverIpReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	foip.Status.NextEligibleMutationAt = nil
 	foip.Status.Phase = netcupv1.FailoverPhaseSucceeded
 	foip.Status.LastSuccessfulPhase = netcupv1.FailoverPhaseCommitting
+	netcupv1.SetCondition(&foip.Status, netcupv1.ConditionReady, metav1.ConditionTrue, "Succeeded", "Failover IP ownership converged", confirmedAt)
+	netcupv1.SetCondition(&foip.Status, netcupv1.ConditionProviderConverged, metav1.ConditionTrue, "ProviderVerified", "Provider route converged", confirmedAt)
+	netcupv1.SetCondition(&foip.Status, netcupv1.ConditionOwnershipConverged, metav1.ConditionTrue, "SingleOwner", "Exactly one local owner is reported", confirmedAt)
 	if err := r.Status().Patch(ctx, &foip, patch); err != nil {
 		return ctrl.Result{}, err
 	}

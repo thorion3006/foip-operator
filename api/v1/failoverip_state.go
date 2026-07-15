@@ -2,9 +2,21 @@ package v1
 
 import (
 	"fmt"
+	"strings"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/uuid"
+)
+
+const (
+	ConditionReady              = "Ready"
+	ConditionStabilizing        = "Stabilizing"
+	ConditionTargetPrepared     = "TargetPrepared"
+	ConditionProviderConverged  = "ProviderConverged"
+	ConditionTrafficVerified    = "TrafficVerified"
+	ConditionOwnershipConverged = "OwnershipConverged"
+	ConditionDegraded           = "Degraded"
+	ConditionBlocked            = "Blocked"
 )
 
 // legalPhaseTransitions is deliberately explicit: a persisted status must not
@@ -113,4 +125,25 @@ func ValidateProbeSpec(spec FailoverProbeSpec) error {
 		return fmt.Errorf("insecureSkipVerify is only valid for TLS and HTTPS probes")
 	}
 	return nil
+}
+
+// SetCondition updates a stable condition without copying sensitive details
+// into Kubernetes status or telemetry.
+func SetCondition(status *FailoverIpStatus, conditionType string, conditionStatus metav1.ConditionStatus, reason, message string, now metav1.Time) {
+	message = strings.TrimSpace(message)
+	if len(message) > 256 {
+		message = message[:256]
+	}
+	newCondition := metav1.Condition{Type: conditionType, Status: conditionStatus, Reason: reason, Message: message, LastTransitionTime: now}
+	for i := range status.Conditions {
+		if status.Conditions[i].Type == conditionType {
+			if status.Conditions[i].Status == conditionStatus && status.Conditions[i].Reason == reason && status.Conditions[i].Message == message {
+				return
+			}
+			newCondition.ObservedGeneration = status.Conditions[i].ObservedGeneration
+			status.Conditions[i] = newCondition
+			return
+		}
+	}
+	status.Conditions = append(status.Conditions, newCondition)
 }
