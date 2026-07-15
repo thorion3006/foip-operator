@@ -78,6 +78,11 @@ rules:
 {{- range .Values.failoverIps }}
 {{- $secretNames = append $secretNames .secretName }}
 {{- end }}
+{{- range .Values.failoverProbes }}
+{{- with .credentialSecretRef }}
+{{- $secretNames = append $secretNames .name }}
+{{- end }}
+{{- end }}
 {{- $secretNames = concat $secretNames .Values.existingSecrets | uniq }}
 {{- if $secretNames }}
 - apiGroups: [""]

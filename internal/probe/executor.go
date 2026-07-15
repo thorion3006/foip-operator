@@ -24,6 +24,16 @@ type Result struct {
 
 // Execute runs one provider-neutral probe with a caller-owned context.
 func Execute(ctx context.Context, spec netcupv1.FailoverProbeSpec) Result {
+	return execute(ctx, spec, "")
+}
+
+// ExecuteWithCredential injects one Secret-derived value into the configured
+// header. The value never appears in Result or any error string.
+func ExecuteWithCredential(ctx context.Context, spec netcupv1.FailoverProbeSpec, value string) Result {
+	return execute(ctx, spec, value)
+}
+
+func execute(ctx context.Context, spec netcupv1.FailoverProbeSpec, credential string) Result {
 	if err := netcupv1.ValidateProbeSpec(spec); err != nil {
 		return Result{Reason: err.Error()}
 	}
@@ -45,7 +55,7 @@ func Execute(ctx context.Context, spec netcupv1.FailoverProbeSpec) Result {
 	case netcupv1.ProbeTypeTLS:
 		return tcp(ctx, spec.Target, true, spec.InsecureSkipVerify)
 	case netcupv1.ProbeTypeHTTP, netcupv1.ProbeTypeHTTPS:
-		return httpProbe(ctx, spec)
+		return httpProbe(ctx, spec, credential)
 	default:
 		return Result{Reason: fmt.Sprintf("probe type %q has no network executor", spec.Type)}
 	}
@@ -68,7 +78,7 @@ func tcp(ctx context.Context, target netcupv1.ProbeTarget, tlsMode, insecure boo
 	return Result{Success: true}
 }
 
-func httpProbe(ctx context.Context, spec netcupv1.FailoverProbeSpec) Result {
+func httpProbe(ctx context.Context, spec netcupv1.FailoverProbeSpec, credential string) Result {
 	scheme := "http"
 	if spec.Type == netcupv1.ProbeTypeHTTPS {
 		scheme = "https"
@@ -84,6 +94,13 @@ func httpProbe(ctx context.Context, spec netcupv1.FailoverProbeSpec) Result {
 	}
 	if spec.Target.Host != "" {
 		req.Host = spec.Target.Host
+	}
+	if credential != "" {
+		header := spec.CredentialHeader
+		if header == "" {
+			header = "Authorization"
+		}
+		req.Header.Set(header, credential)
 	}
 	transport := &http.Transport{TLSClientConfig: &tls.Config{ServerName: spec.Target.SNI, MinVersion: tls.VersionTLS12, InsecureSkipVerify: spec.InsecureSkipVerify}} // #nosec G402 -- insecure mode is an explicit API opt-in
 	if !spec.FollowRedirects {

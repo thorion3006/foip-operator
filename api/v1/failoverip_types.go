@@ -187,6 +187,7 @@ type FailoverProbeSpec struct {
 	FollowRedirects     bool                       `json:"followRedirects,omitempty"`
 	InsecureSkipVerify  bool                       `json:"insecureSkipVerify,omitempty"`
 	CredentialSecretRef *corev1.SecretKeySelector  `json:"credentialSecretRef,omitempty"`
+	CredentialHeader    string                     `json:"credentialHeader,omitempty"`
 }
 
 // ProbeObservation contains only non-sensitive result metadata.

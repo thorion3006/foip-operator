@@ -59,6 +59,8 @@ spec:
                 - Any
                 - Quorum
                 type: string
+              credentialHeader:
+                type: string
               credentialSecretRef:
                 description: SecretKeySelector selects a key of a Secret.
                 properties:
