@@ -148,6 +148,7 @@ jobs:
       - prepare
       - build-amd64
       - build-arm64
+      - validate
     permissions:
       contents: read
       packages: write
@@ -214,6 +215,15 @@ jobs:
           fi
           echo "digest=$manifest_digest" >> "$GITHUB_OUTPUT"
 
+      - name: Verify published image architectures
+        env:
+          DIGEST: ${{ steps.manifest.outputs.digest }}
+          IMAGE: ${{ env.IMAGE }}
+        run: |
+          docker buildx imagetools inspect "${IMAGE}@${DIGEST}" --raw > manifest.json
+          jq -e '[.manifests[] | select(.platform.architecture == "amd64" and .platform.os == "linux")] | length == 1' manifest.json
+          jq -e '[.manifests[] | select(.platform.architecture == "arm64" and .platform.os == "linux")] | length == 1' manifest.json
+
       - name: Generate SBOM
         uses: anchore/sbom-action@v0
         with:
@@ -259,3 +269,21 @@ jobs:
             --destination dist/
           helm push dist/foip-operator-${{ needs.prepare.outputs.version }}.tgz \
             oci://${{ env.REGISTRY }}/thorion3006
+
+  validate:
+    name: Validate release contracts
+    runs-on: ubuntu-latest
+    needs: prepare
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Run deterministic restart and release checks
+        run: go test ./test/e2e -run 'TestPersistedState|TestReleaseWorkflow' -count=1 -v
