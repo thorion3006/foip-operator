@@ -174,8 +174,8 @@ spec:
                   edge product.
                 properties:
                   address:
-                    description: Address may contain ${targetNodeIP}, ${failoverIP},
-                      or ${dnsName}.
+                    description: Address may contain ${targetNodeIP} or ${failoverIP},
+                      or be an explicit DNS name.
                     type: string
                   host:
                     type: string
@@ -266,6 +266,12 @@ spec:
                   description: ProbeObservation contains only non-sensitive result
                     metadata.
                   properties:
+                    consecutiveFailures:
+                      format: int32
+                      type: integer
+                    consecutiveSuccesses:
+                      format: int32
+                      type: integer
                     name:
                       type: string
                     observedAt:

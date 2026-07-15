@@ -11,6 +11,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	netcupv1 "github.com/thorion3006/foip-operator/api/v1"
+	"github.com/thorion3006/foip-operator/internal/probe"
 )
 
 func TestResolveProbeSpecSubstitutesFailoverAndTargetNodeIP(t *testing.T) {
@@ -33,6 +34,27 @@ func TestResolveProbeSpecRejectsUnresolvedPlaceholder(t *testing.T) {
 	_, err := resolveProbeSpec(context.Background(), fake.NewClientBuilder().WithScheme(k8sClient.Scheme()).Build(), foip, netcupv1.FailoverProbeSpec{Phase: netcupv1.ProbePhasePreRoute, Type: netcupv1.ProbeTypeTCP, Target: netcupv1.ProbeTarget{Address: "${dnsName}", Port: 443}})
 	if err == nil {
 		t.Fatal("expected unresolved placeholder to be rejected")
+	}
+}
+
+func TestApplyProbeThresholdsPreservesHealthyStateUntilFailureThreshold(t *testing.T) {
+	spec := netcupv1.FailoverProbeSpec{SuccessThreshold: 2, FailureThreshold: 3}
+	status := netcupv1.FailoverProbeStatus{Observations: []netcupv1.ProbeObservation{{Name: "probe", Success: true, ConsecutiveSuccesses: 2}}}
+	result, successes, failures := applyProbeThresholds(spec, status, "probe", probe.Result{Reason: "connection failed"})
+	if !result.Success || successes != 0 || failures != 1 {
+		t.Fatalf("result = %#v, counts = (%d, %d)", result, successes, failures)
+	}
+	result, _, failures = applyProbeThresholds(spec, netcupv1.FailoverProbeStatus{Observations: []netcupv1.ProbeObservation{{Name: "probe", Success: true, ConsecutiveSuccesses: 0, ConsecutiveFailures: 2}}}, "probe", probe.Result{Reason: "connection failed"})
+	if result.Success || failures != 3 {
+		t.Fatalf("threshold result = %#v, failures = %d", result, failures)
+	}
+}
+
+func TestApplyProbeThresholdsRequiresConsecutiveSuccesses(t *testing.T) {
+	spec := netcupv1.FailoverProbeSpec{SuccessThreshold: 2}
+	result, successes, _ := applyProbeThresholds(spec, netcupv1.FailoverProbeStatus{}, "probe", probe.Result{Success: true})
+	if result.Success || successes != 1 {
+		t.Fatalf("first success = %#v, count = %d", result, successes)
 	}
 }
 

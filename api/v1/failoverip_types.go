@@ -140,7 +140,7 @@ const (
 
 // ProbeTarget describes the endpoint independently of any edge product.
 type ProbeTarget struct {
-	// Address may contain ${targetNodeIP}, ${failoverIP}, or ${dnsName}.
+	// Address may contain ${targetNodeIP} or ${failoverIP}, or be an explicit DNS name.
 	Address string `json:"address,omitempty"`
 	Port    int32  `json:"port,omitempty"`
 	Path    string `json:"path,omitempty"`
@@ -202,10 +202,12 @@ type FailoverProbeSpec struct {
 
 // ProbeObservation contains only non-sensitive result metadata.
 type ProbeObservation struct {
-	Name       string      `json:"name"`
-	Success    bool        `json:"success"`
-	Reason     string      `json:"reason,omitempty"`
-	ObservedAt metav1.Time `json:"observedAt"`
+	Name                 string      `json:"name"`
+	Success              bool        `json:"success"`
+	Reason               string      `json:"reason,omitempty"`
+	ObservedAt           metav1.Time `json:"observedAt"`
+	ConsecutiveSuccesses int32       `json:"consecutiveSuccesses,omitempty"`
+	ConsecutiveFailures  int32       `json:"consecutiveFailures,omitempty"`
 }
 
 type FailoverProbeStatus struct {

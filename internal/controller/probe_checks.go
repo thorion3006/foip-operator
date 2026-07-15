@@ -54,9 +54,10 @@ func evaluateProbePhase(ctx context.Context, reader client.Reader, foip netcupv1
 			}
 			result = probe.ExecuteWithCredential(ctx, resolvedSpec, string(credential))
 		}
+		result, successCount, failureCount := applyProbeThresholds(resource.Spec, resource.Status, resource.Name, result)
 		results = append(results, result)
 		if writer, ok := reader.(client.Client); ok {
-			if err := persistProbeObservation(ctx, writer, &resource, result); err != nil {
+			if err := persistProbeObservation(ctx, writer, &resource, result, successCount, failureCount); err != nil {
 				return err
 			}
 		}
@@ -69,6 +70,32 @@ func evaluateProbePhase(ctx context.Context, reader client.Reader, foip netcupv1
 		return fmt.Errorf("%s probe gate failed: %s", phase, result.Reason)
 	}
 	return nil
+}
+
+func applyProbeThresholds(spec netcupv1.FailoverProbeSpec, status netcupv1.FailoverProbeStatus, name string, result probe.Result) (probe.Result, int32, int32) {
+	var previous netcupv1.ProbeObservation
+	for _, observation := range status.Observations {
+		if observation.Name == name {
+			previous = observation
+			break
+		}
+	}
+	successThreshold := max(spec.SuccessThreshold, 1)
+	failureThreshold := max(spec.FailureThreshold, 1)
+	if result.Success {
+		previous.ConsecutiveSuccesses++
+		previous.ConsecutiveFailures = 0
+		if previous.ConsecutiveSuccesses < successThreshold {
+			return probe.Result{Reason: "success threshold not reached"}, previous.ConsecutiveSuccesses, previous.ConsecutiveFailures
+		}
+		return result, previous.ConsecutiveSuccesses, previous.ConsecutiveFailures
+	}
+	previous.ConsecutiveFailures++
+	previous.ConsecutiveSuccesses = 0
+	if previous.ConsecutiveFailures < failureThreshold && previous.Success {
+		return probe.Result{Success: true, Reason: "failure threshold not reached"}, previous.ConsecutiveSuccesses, previous.ConsecutiveFailures
+	}
+	return result, previous.ConsecutiveSuccesses, previous.ConsecutiveFailures
 }
 
 func resolveProbeSpec(ctx context.Context, reader client.Reader, foip netcupv1.FailoverIp, spec netcupv1.FailoverProbeSpec) (netcupv1.FailoverProbeSpec, error) {
@@ -108,10 +135,10 @@ func resolveProbeSpec(ctx context.Context, reader client.Reader, foip netcupv1.F
 	return resolved, nil
 }
 
-func persistProbeObservation(ctx context.Context, writer client.Client, resource *netcupv1.FailoverProbe, result probe.Result) error {
+func persistProbeObservation(ctx context.Context, writer client.Client, resource *netcupv1.FailoverProbe, result probe.Result, successCount, failureCount int32) error {
 	patch := client.MergeFrom(resource.DeepCopy())
 	now := metav1.Now()
-	observation := netcupv1.ProbeObservation{Name: resource.Name, Success: result.Success, Reason: result.Reason, ObservedAt: now}
+	observation := netcupv1.ProbeObservation{Name: resource.Name, Success: result.Success, Reason: result.Reason, ObservedAt: now, ConsecutiveSuccesses: successCount, ConsecutiveFailures: failureCount}
 	found := false
 	for i := range resource.Status.Observations {
 		if resource.Status.Observations[i].Name == resource.Name {
