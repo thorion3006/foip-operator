@@ -15,6 +15,7 @@ const (
 	ConditionProviderConverged  = "ProviderConverged"
 	ConditionTrafficVerified    = "TrafficVerified"
 	ConditionOwnershipConverged = "OwnershipConverged"
+	ConditionCooldown           = "Cooldown"
 	ConditionDegraded           = "Degraded"
 	ConditionBlocked            = "Blocked"
 )

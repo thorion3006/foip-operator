@@ -364,6 +364,7 @@ func (r *FailoverIpReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			patch := client.MergeFrom(foip.DeepCopy())
 			eligible := metav1.NewTime(nextMutation)
 			foip.Status.NextEligibleMutationAt = &eligible
+			netcupv1.SetCondition(&foip.Status, netcupv1.ConditionCooldown, metav1.ConditionTrue, "ProviderCooldown", "Provider mutation is waiting for the persisted cooldown", metav1.Now())
 			if err := r.Status().Patch(ctx, &foip, patch); err != nil {
 				return ctrl.Result{}, err
 			}
@@ -373,6 +374,7 @@ func (r *FailoverIpReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		patch := client.MergeFrom(foip.DeepCopy())
 		attemptedAt := metav1.Now()
 		foip.Status.LastAttemptedProviderMutationAt = &attemptedAt
+		netcupv1.SetCondition(&foip.Status, netcupv1.ConditionCooldown, metav1.ConditionFalse, "MutationEligible", "Provider mutation cooldown has elapsed", attemptedAt)
 		if err := r.Status().Patch(ctx, &foip, patch); err != nil {
 			return ctrl.Result{}, err
 		}
@@ -431,6 +433,7 @@ func (r *FailoverIpReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		if err := netcupv1.AdvanceTransition(&foip.Status, netcupv1.FailoverPhaseVerifyingProvider, now); err != nil {
 			return ctrl.Result{}, err
 		}
+		netcupv1.SetCondition(&foip.Status, netcupv1.ConditionProviderConverged, metav1.ConditionTrue, "ProviderOwnerConfirmed", "Provider reports the selected target owner", now)
 		if err := r.Status().Update(ctx, &foip); err != nil {
 			return ctrl.Result{}, err
 		}
@@ -465,6 +468,7 @@ func (r *FailoverIpReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		if err := netcupv1.AdvanceTransition(&foip.Status, netcupv1.FailoverPhaseCommitting, now); err != nil {
 			return ctrl.Result{}, err
 		}
+		netcupv1.SetCondition(&foip.Status, netcupv1.ConditionTrafficVerified, metav1.ConditionTrue, "ProbeGatePassed", "Post-route traffic verification passed", now)
 		if err := r.Status().Patch(ctx, &foip, patch); err != nil {
 			return ctrl.Result{}, err
 		}
@@ -485,6 +489,11 @@ func (r *FailoverIpReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	if foip.Status.Phase == netcupv1.FailoverPhaseCleaningStaleOwners {
 		observability.ObserveOwnerCount(string(foip.Status.Phase), len(foip.Status.LocalOwners))
 		if len(foip.Status.LocalOwners) != 1 || !containsNode(foip.Status.LocalOwners, foip.Status.TargetNode) {
+			patch := client.MergeFrom(foip.DeepCopy())
+			netcupv1.SetCondition(&foip.Status, netcupv1.ConditionOwnershipConverged, metav1.ConditionFalse, "OwnersPending", "Waiting for exactly one local target owner", metav1.Now())
+			if err := r.Status().Patch(ctx, &foip, patch); err != nil {
+				return ctrl.Result{}, err
+			}
 			return ctrl.Result{RequeueAfter: preparationPollInterval}, nil
 		}
 		patch := client.MergeFrom(foip.DeepCopy())
@@ -493,6 +502,8 @@ func (r *FailoverIpReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			return ctrl.Result{}, err
 		}
 		r.emitEvent(&foip, corev1.EventTypeNormal, "HandoffSucceeded", "Failover transition converged to one local owner")
+		netcupv1.SetCondition(&foip.Status, netcupv1.ConditionOwnershipConverged, metav1.ConditionTrue, "SingleOwner", "Exactly one local target owner is confirmed", now)
+		netcupv1.SetCondition(&foip.Status, netcupv1.ConditionReady, metav1.ConditionTrue, "Succeeded", "Failover transition completed successfully", now)
 		if err := r.Status().Patch(ctx, &foip, patch); err != nil {
 			return ctrl.Result{}, err
 		}
