@@ -323,7 +323,7 @@ func (r *FailoverIpReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			if patchErr := r.Status().Patch(ctx, &foip, patch); patchErr != nil {
 				return ctrl.Result{}, patchErr
 			}
-			return ctrl.Result{}, fmt.Errorf("routeFailoverIP: %w", err)
+			return ctrl.Result{RequeueAfter: retryDelay(foip.Spec, foip.Status.RetryCount)}, nil
 		}
 		observability.ObserveProviderCall("netcup", "route_failover_ip", time.Since(routeStart), nil)
 

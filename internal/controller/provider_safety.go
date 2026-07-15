@@ -51,7 +51,11 @@ func retryDelay(spec netcupv1.FailoverIpSpec, retryCount int32) time.Duration {
 		}
 	}
 	// Full jitter avoids synchronized controller replicas retrying together.
-	return time.Duration(rand.Int64N(int64(delay) + 1))
+	jitter := time.Duration(rand.Int64N(int64(delay) + 1))
+	if jitter < time.Second {
+		return time.Second
+	}
+	return jitter
 }
 
 func validateProviderFence(status netcupv1.FailoverIpStatus, observedOwner, targetOwner string) error {
