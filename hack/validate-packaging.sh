@@ -5,6 +5,7 @@ ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 CHART="$ROOT/charts/foip-operator"
 FIXTURE="$ROOT/examples/helm/values-safe.yaml"
 NODE_HEALTH_FIXTURE="$ROOT/examples/helm/values-node-health-only.yaml"
+CHART_VERSION=$(awk -F': *' '/^version: / { print $2; exit }' "$CHART/Chart.yaml")
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 
@@ -17,8 +18,8 @@ echo "== Render default and safe example values =="
 helm template smoke "$CHART" > "$TMP/default.yaml"
 helm template smoke "$CHART" -f "$FIXTURE" > "$TMP/safe.yaml"
 helm template smoke "$CHART" -f "$NODE_HEALTH_FIXTURE" > "$TMP/node-health-only.yaml"
-helm package "$CHART" --version "0.3.0" --app-version "0.3.0" --destination "$TMP" >/dev/null
-test -s "$TMP/foip-operator-0.3.0.tgz"
+helm package "$CHART" --version "$CHART_VERSION" --app-version "$CHART_VERSION" --destination "$TMP" >/dev/null
+test -s "$TMP/foip-operator-$CHART_VERSION.tgz"
 
 assert_contains() {
   local file=$1
