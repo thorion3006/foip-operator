@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	netcupv1 "github.com/thorion3006/foip-operator/api/v1"
 	"github.com/thorion3006/foip-operator/internal/probe"
@@ -29,15 +30,19 @@ func evaluateProbePhase(ctx context.Context, reader client.Reader, foip netcupv1
 		if resource.Spec.Phase != phase && resource.Spec.Phase != netcupv1.ProbePhaseContinuous {
 			continue
 		}
+		resolvedSpec, err := resolveProbeSpec(ctx, reader, foip, resource.Spec)
+		if err != nil {
+			return fmt.Errorf("resolving probe %s target: %w", ref.Name, err)
+		}
 		if foip.Spec.ProbeComposition == "" && resource.Spec.Composition != "" {
 			composition = resource.Spec.Composition
 			quorum = resource.Spec.Quorum
 		}
 		var result probe.Result
-		if resource.Spec.Type == netcupv1.ProbeTypeKubernetes {
-			result = probe.ExecuteKubernetes(ctx, reader, resource.Spec.Kubernetes)
-		} else if resource.Spec.CredentialSecretRef == nil {
-			result = probe.Execute(ctx, resource.Spec)
+		if resolvedSpec.Type == netcupv1.ProbeTypeKubernetes {
+			result = probe.ExecuteKubernetes(ctx, reader, resolvedSpec.Kubernetes)
+		} else if resolvedSpec.CredentialSecretRef == nil {
+			result = probe.Execute(ctx, resolvedSpec)
 		} else {
 			var secret corev1.Secret
 			if err := reader.Get(ctx, client.ObjectKey{Name: resource.Spec.CredentialSecretRef.Name, Namespace: foip.Namespace}, &secret); err != nil {
@@ -47,7 +52,7 @@ func evaluateProbePhase(ctx context.Context, reader client.Reader, foip netcupv1
 			if len(credential) == 0 {
 				return fmt.Errorf("probe credential Secret key is empty")
 			}
-			result = probe.ExecuteWithCredential(ctx, resource.Spec, string(credential))
+			result = probe.ExecuteWithCredential(ctx, resolvedSpec, string(credential))
 		}
 		results = append(results, result)
 		if writer, ok := reader.(client.Client); ok {
@@ -64,6 +69,43 @@ func evaluateProbePhase(ctx context.Context, reader client.Reader, foip netcupv1
 		return fmt.Errorf("%s probe gate failed: %s", phase, result.Reason)
 	}
 	return nil
+}
+
+func resolveProbeSpec(ctx context.Context, reader client.Reader, foip netcupv1.FailoverIp, spec netcupv1.FailoverProbeSpec) (netcupv1.FailoverProbeSpec, error) {
+	resolved := spec
+	resolved.Target.Address = strings.ReplaceAll(resolved.Target.Address, "${failoverIP}", foip.Spec.IP)
+	resolved.Target.Host = strings.ReplaceAll(resolved.Target.Host, "${failoverIP}", foip.Spec.IP)
+	resolved.Target.SNI = strings.ReplaceAll(resolved.Target.SNI, "${failoverIP}", foip.Spec.IP)
+	if strings.Contains(resolved.Target.Address, "${targetNodeIP}") || strings.Contains(resolved.Target.Host, "${targetNodeIP}") || strings.Contains(resolved.Target.SNI, "${targetNodeIP}") {
+		if foip.Status.TargetNode == "" {
+			return netcupv1.FailoverProbeSpec{}, fmt.Errorf("target node is not selected")
+		}
+		var node corev1.Node
+		if err := reader.Get(ctx, client.ObjectKey{Name: foip.Status.TargetNode}, &node); err != nil {
+			return netcupv1.FailoverProbeSpec{}, fmt.Errorf("loading target node %s: %w", foip.Status.TargetNode, err)
+		}
+		nodeIP := ""
+		for _, address := range node.Status.Addresses {
+			if address.Type == corev1.NodeInternalIP || address.Type == corev1.NodeExternalIP {
+				nodeIP = address.Address
+				if address.Type == corev1.NodeInternalIP {
+					break
+				}
+			}
+		}
+		if nodeIP == "" {
+			return netcupv1.FailoverProbeSpec{}, fmt.Errorf("target node %s has no usable address", foip.Status.TargetNode)
+		}
+		resolved.Target.Address = strings.ReplaceAll(resolved.Target.Address, "${targetNodeIP}", nodeIP)
+		resolved.Target.Host = strings.ReplaceAll(resolved.Target.Host, "${targetNodeIP}", nodeIP)
+		resolved.Target.SNI = strings.ReplaceAll(resolved.Target.SNI, "${targetNodeIP}", nodeIP)
+	}
+	for _, value := range []string{resolved.Target.Address, resolved.Target.Host, resolved.Target.SNI} {
+		if strings.Contains(value, "${") {
+			return netcupv1.FailoverProbeSpec{}, fmt.Errorf("unsupported target placeholder")
+		}
+	}
+	return resolved, nil
 }
 
 func persistProbeObservation(ctx context.Context, writer client.Client, resource *netcupv1.FailoverProbe, result probe.Result) error {
