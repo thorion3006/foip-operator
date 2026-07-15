@@ -45,6 +45,41 @@ type Client struct {
 	tokenExpiry time.Time
 }
 
+type ErrorClass string
+
+const (
+	ErrorClassTransient   ErrorClass = "Transient"
+	ErrorClassRateLimited ErrorClass = "RateLimited"
+	ErrorClassAuth        ErrorClass = "Authentication"
+	ErrorClassValidation  ErrorClass = "Validation"
+	ErrorClassTerminal    ErrorClass = "Terminal"
+)
+
+// ProviderError preserves safe retry metadata without exposing response data.
+type ProviderError struct {
+	Class      ErrorClass
+	StatusCode int
+	RetryAfter time.Duration
+	Message    string
+}
+
+func (e *ProviderError) Error() string { return e.Message }
+
+func classifyHTTPError(status int) *ProviderError {
+	class := ErrorClassTerminal
+	switch {
+	case status == http.StatusUnauthorized || status == http.StatusForbidden:
+		class = ErrorClassAuth
+	case status == http.StatusTooManyRequests:
+		class = ErrorClassRateLimited
+	case status >= 500:
+		class = ErrorClassTransient
+	case status >= 400:
+		class = ErrorClassValidation
+	}
+	return &ProviderError{Class: class, StatusCode: status, Message: fmt.Sprintf("provider request failed with HTTP %d", status)}
+}
+
 func New(userID int, refreshToken string) *Client {
 	return &Client{
 		userID:       userID,
@@ -80,7 +115,9 @@ func (c *Client) token(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("reading token response: %w", err)
 	}
 	if resp.StatusCode/100 != 2 {
-		return "", fmt.Errorf("SCP token refresh HTTP %d: %s", resp.StatusCode, data)
+		providerErr := classifyHTTPError(resp.StatusCode)
+		providerErr.Message = fmt.Sprintf("SCP token refresh failed with HTTP %d", resp.StatusCode)
+		return "", providerErr
 	}
 	var tr struct {
 		AccessToken string `json:"access_token"`
@@ -137,7 +174,7 @@ func (c *Client) FindFailoverIP(ctx context.Context, ip string) (foipID int, ser
 		return 0, 0, err
 	}
 	if status != http.StatusOK {
-		return 0, 0, fmt.Errorf("list failover IPs HTTP %d: %s", status, data)
+		return 0, 0, classifyHTTPError(status)
 	}
 	var ips []failoverIPv4
 	if err := json.Unmarshal(data, &ips); err != nil {
@@ -162,7 +199,7 @@ func (c *Client) RouteFailoverIP(ctx context.Context, foipID, targetServerID int
 		return err
 	}
 	if status != http.StatusAccepted {
-		return fmt.Errorf("route failover IP HTTP %d: %s", status, data)
+		return classifyHTTPError(status)
 	}
 	var task struct {
 		UUID string `json:"uuid"`
