@@ -54,6 +54,7 @@ func ValidateStatus(status FailoverIpStatus) error {
 		return fmt.Errorf("phase %s has no transition ID", status.Phase)
 	}
 	if status.TargetNode != "" && status.SourceNode != "" && status.TargetNode == status.SourceNode &&
+		status.Phase != FailoverPhaseCommitting && status.Phase != FailoverPhaseCleaningStaleOwners &&
 		status.Phase != FailoverPhaseSucceeded && status.Phase != FailoverPhaseIdle {
 		return fmt.Errorf("source and target node are identical: %s", status.TargetNode)
 	}

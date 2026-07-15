@@ -117,6 +117,18 @@ func (r *FailoverIpReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		}
 		return ctrl.Result{RequeueAfter: preparationPollInterval}, nil
 	}
+	if err := netcupv1.ValidateStatus(foip.Status); err != nil {
+		patch := client.MergeFrom(foip.DeepCopy())
+		now := metav1.Now()
+		foip.Status.Phase = netcupv1.FailoverPhaseBlocked
+		foip.Status.LastError = "invalid persisted failover status"
+		netcupv1.SetCondition(&foip.Status, netcupv1.ConditionBlocked, metav1.ConditionTrue, "InvalidStatus", "Persisted failover status is contradictory", now)
+		r.emitEvent(&foip, corev1.EventTypeWarning, "InvalidStatus", "Blocked contradictory persisted failover status")
+		if patchErr := r.Status().Patch(ctx, &foip, patch); patchErr != nil {
+			return ctrl.Result{}, patchErr
+		}
+		return ctrl.Result{}, err
+	}
 
 	var secret corev1.Secret
 	secretStart := time.Now()
