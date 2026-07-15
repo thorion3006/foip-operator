@@ -155,6 +155,11 @@ type ProbeNetworkPolicy struct {
 	DeniedCIDRs          []string `json:"deniedCIDRs,omitempty"`
 }
 
+type ProbeHeader struct {
+	Name  string `json:"name"`
+	Value string `json:"value,omitempty"`
+}
+
 // KubernetesReadinessTarget describes a Kubernetes object readiness check.
 type KubernetesReadinessTarget struct {
 	APIVersion string `json:"apiVersion"`
@@ -188,6 +193,11 @@ type FailoverProbeSpec struct {
 	InsecureSkipVerify  bool                       `json:"insecureSkipVerify,omitempty"`
 	CredentialSecretRef *corev1.SecretKeySelector  `json:"credentialSecretRef,omitempty"`
 	CredentialHeader    string                     `json:"credentialHeader,omitempty"`
+	Method              string                     `json:"method,omitempty"`
+	ExpectedStatusMin   int32                      `json:"expectedStatusMin,omitempty"`
+	ExpectedStatusMax   int32                      `json:"expectedStatusMax,omitempty"`
+	BodyMatch           string                     `json:"bodyMatch,omitempty"`
+	Headers             []ProbeHeader              `json:"headers,omitempty"`
 }
 
 // ProbeObservation contains only non-sensitive result metadata.

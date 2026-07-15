@@ -117,6 +117,10 @@ func ValidateProbeSpec(spec FailoverProbeSpec) error {
 		}
 		return nil
 	}
+	return validateNetworkProbeSpec(spec)
+}
+
+func validateNetworkProbeSpec(spec FailoverProbeSpec) error {
 	if spec.Target.Address == "" {
 		return fmt.Errorf("network probes require a target address")
 	}
@@ -127,6 +131,13 @@ func ValidateProbeSpec(spec FailoverProbeSpec) error {
 	}
 	if spec.InsecureSkipVerify && spec.Type != ProbeTypeTLS && spec.Type != ProbeTypeHTTPS {
 		return fmt.Errorf("insecureSkipVerify is only valid for TLS and HTTPS probes")
+	}
+	if len(spec.Headers) > 32 {
+		return fmt.Errorf("probe has too many headers")
+	}
+	if spec.ExpectedStatusMin < 0 || spec.ExpectedStatusMin > 599 || spec.ExpectedStatusMax < 0 || spec.ExpectedStatusMax > 599 ||
+		(spec.ExpectedStatusMin > 0 && spec.ExpectedStatusMax > 0 && spec.ExpectedStatusMin > spec.ExpectedStatusMax) {
+		return fmt.Errorf("invalid expected HTTP status range")
 	}
 	return nil
 }

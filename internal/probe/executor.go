@@ -88,7 +88,11 @@ func httpProbe(ctx context.Context, spec netcupv1.FailoverProbeSpec, credential 
 		path = "/"
 	}
 	url := scheme + "://" + net.JoinHostPort(spec.Target.Address, strconv.Itoa(int(spec.Target.Port))) + path
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	method := spec.Method
+	if method == "" {
+		method = http.MethodGet
+	}
+	req, err := http.NewRequestWithContext(ctx, method, url, nil)
 	if err != nil {
 		return Result{Reason: "invalid request"}
 	}
@@ -101,6 +105,9 @@ func httpProbe(ctx context.Context, spec netcupv1.FailoverProbeSpec, credential 
 			header = "Authorization"
 		}
 		req.Header.Set(header, credential)
+	}
+	for _, header := range spec.Headers {
+		req.Header.Set(header.Name, header.Value)
 	}
 	transport := &http.Transport{TLSClientConfig: &tls.Config{ServerName: spec.Target.SNI, MinVersion: tls.VersionTLS12, InsecureSkipVerify: spec.InsecureSkipVerify}} // #nosec G402 -- insecure mode is an explicit API opt-in
 	if !spec.FollowRedirects {
@@ -120,9 +127,22 @@ func httpProbe(ctx context.Context, spec netcupv1.FailoverProbeSpec, credential 
 		return Result{Reason: "request failed"}
 	}
 	defer func() { _ = resp.Body.Close() }()
-	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxResponseBody))
-	if resp.StatusCode/100 != 2 {
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxResponseBody+1))
+	if len(body) > maxResponseBody {
+		return Result{Reason: "response body exceeded limit"}
+	}
+	minStatus, maxStatus := spec.ExpectedStatusMin, spec.ExpectedStatusMax
+	if minStatus == 0 {
+		minStatus = 200
+	}
+	if maxStatus == 0 {
+		maxStatus = 299
+	}
+	if int32(resp.StatusCode) < minStatus || int32(resp.StatusCode) > maxStatus {
 		return Result{Reason: "unexpected HTTP status"}
+	}
+	if spec.BodyMatch != "" && !strings.Contains(string(body), spec.BodyMatch) {
+		return Result{Reason: "response body did not match"}
 	}
 	return Result{Success: true}
 }
