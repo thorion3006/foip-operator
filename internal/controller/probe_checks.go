@@ -39,10 +39,25 @@ func evaluateProbePhase(ctx context.Context, reader client.Reader, foip netcupv1
 			quorum = resource.Spec.Quorum
 		}
 		var result probe.Result
+		var caBundle []byte
+		if resolvedSpec.CABundleSecretRef != nil {
+			var caSecret corev1.Secret
+			if err := reader.Get(ctx, client.ObjectKey{Name: resolvedSpec.CABundleSecretRef.Name, Namespace: foip.Namespace}, &caSecret); err != nil {
+				return fmt.Errorf("loading probe CA bundle Secret: %w", err)
+			}
+			caBundle = caSecret.Data[resolvedSpec.CABundleSecretRef.Key]
+			if len(caBundle) == 0 {
+				return fmt.Errorf("probe CA bundle Secret key is empty")
+			}
+		}
 		if resolvedSpec.Type == netcupv1.ProbeTypeKubernetes {
 			result = probe.ExecuteKubernetes(ctx, reader, resolvedSpec.Kubernetes)
 		} else if resolvedSpec.CredentialSecretRef == nil {
-			result = probe.Execute(ctx, resolvedSpec)
+			if len(caBundle) == 0 {
+				result = probe.Execute(ctx, resolvedSpec)
+			} else {
+				result = probe.ExecuteWithCredentialAndCABundle(ctx, resolvedSpec, "", caBundle)
+			}
 		} else {
 			var secret corev1.Secret
 			if err := reader.Get(ctx, client.ObjectKey{Name: resource.Spec.CredentialSecretRef.Name, Namespace: foip.Namespace}, &secret); err != nil {
@@ -52,7 +67,7 @@ func evaluateProbePhase(ctx context.Context, reader client.Reader, foip netcupv1
 			if len(credential) == 0 {
 				return fmt.Errorf("probe credential Secret key is empty")
 			}
-			result = probe.ExecuteWithCredential(ctx, resolvedSpec, string(credential))
+			result = probe.ExecuteWithCredentialAndCABundle(ctx, resolvedSpec, string(credential), caBundle)
 		}
 		result, successCount, failureCount := applyProbeThresholds(resource.Spec, resource.Status, resource.Name, result)
 		results = append(results, result)

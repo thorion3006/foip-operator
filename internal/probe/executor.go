@@ -3,6 +3,7 @@ package probe
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"io"
 	"net"
@@ -24,16 +25,22 @@ type Result struct {
 
 // Execute runs one provider-neutral probe with a caller-owned context.
 func Execute(ctx context.Context, spec netcupv1.FailoverProbeSpec) Result {
-	return execute(ctx, spec, "")
+	return execute(ctx, spec, "", nil)
 }
 
 // ExecuteWithCredential injects one Secret-derived value into the configured
 // header. The value never appears in Result or any error string.
 func ExecuteWithCredential(ctx context.Context, spec netcupv1.FailoverProbeSpec, value string) Result {
-	return execute(ctx, spec, value)
+	return execute(ctx, spec, value, nil)
 }
 
-func execute(ctx context.Context, spec netcupv1.FailoverProbeSpec, credential string) Result {
+// ExecuteWithCredentialAndCABundle injects a Secret-derived credential and
+// optional PEM CA bundle without exposing either value in the result.
+func ExecuteWithCredentialAndCABundle(ctx context.Context, spec netcupv1.FailoverProbeSpec, value string, caBundle []byte) Result {
+	return execute(ctx, spec, value, caBundle)
+}
+
+func execute(ctx context.Context, spec netcupv1.FailoverProbeSpec, credential string, caBundle []byte) Result {
 	if err := netcupv1.ValidateProbeSpec(spec); err != nil {
 		return Result{Reason: err.Error()}
 	}
@@ -51,23 +58,27 @@ func execute(ctx context.Context, spec netcupv1.FailoverProbeSpec, credential st
 
 	switch spec.Type {
 	case netcupv1.ProbeTypeTCP:
-		return tcp(ctx, spec.Target, false, spec.InsecureSkipVerify)
+		return tcp(ctx, spec.Target, false, spec.InsecureSkipVerify, caBundle)
 	case netcupv1.ProbeTypeTLS:
-		return tcp(ctx, spec.Target, true, spec.InsecureSkipVerify)
+		return tcp(ctx, spec.Target, true, spec.InsecureSkipVerify, caBundle)
 	case netcupv1.ProbeTypeHTTP, netcupv1.ProbeTypeHTTPS:
-		return httpProbe(ctx, spec, credential)
+		return httpProbe(ctx, spec, credential, caBundle)
 	default:
 		return Result{Reason: fmt.Sprintf("probe type %q has no network executor", spec.Type)}
 	}
 }
 
-func tcp(ctx context.Context, target netcupv1.ProbeTarget, tlsMode, insecure bool) Result {
+func tcp(ctx context.Context, target netcupv1.ProbeTarget, tlsMode, insecure bool, caBundle []byte) Result {
 	address := net.JoinHostPort(target.Address, strconv.Itoa(int(target.Port)))
 	dialer := &net.Dialer{}
 	var conn net.Conn
 	var err error
 	if tlsMode {
-		conn, err = tls.DialWithDialer(dialer, "tcp", address, &tls.Config{ServerName: target.SNI, MinVersion: tls.VersionTLS12, InsecureSkipVerify: insecure}) // #nosec G402 -- insecure mode is an explicit API opt-in
+		config, configErr := tlsConfig(target.SNI, insecure, caBundle)
+		if configErr != nil {
+			return Result{Reason: configErr.Error()}
+		}
+		conn, err = tls.DialWithDialer(dialer, "tcp", address, config) // #nosec G402 -- insecure mode is an explicit API opt-in
 	} else {
 		conn, err = dialer.DialContext(ctx, "tcp", address)
 	}
@@ -78,7 +89,7 @@ func tcp(ctx context.Context, target netcupv1.ProbeTarget, tlsMode, insecure boo
 	return Result{Success: true}
 }
 
-func httpProbe(ctx context.Context, spec netcupv1.FailoverProbeSpec, credential string) Result {
+func httpProbe(ctx context.Context, spec netcupv1.FailoverProbeSpec, credential string, caBundle []byte) Result {
 	scheme := "http"
 	if spec.Type == netcupv1.ProbeTypeHTTPS {
 		scheme = "https"
@@ -109,7 +120,11 @@ func httpProbe(ctx context.Context, spec netcupv1.FailoverProbeSpec, credential 
 	for _, header := range spec.Headers {
 		req.Header.Set(header.Name, header.Value)
 	}
-	transport := &http.Transport{TLSClientConfig: &tls.Config{ServerName: spec.Target.SNI, MinVersion: tls.VersionTLS12, InsecureSkipVerify: spec.InsecureSkipVerify}} // #nosec G402 -- insecure mode is an explicit API opt-in
+	config, configErr := tlsConfig(spec.Target.SNI, spec.InsecureSkipVerify, caBundle)
+	if configErr != nil {
+		return Result{Reason: configErr.Error()}
+	}
+	transport := &http.Transport{TLSClientConfig: config} // #nosec G402 -- insecure mode is an explicit API opt-in
 	if !spec.FollowRedirects {
 		transport.DisableKeepAlives = true
 	}
@@ -145,6 +160,22 @@ func httpProbe(ctx context.Context, spec netcupv1.FailoverProbeSpec, credential 
 		return Result{Reason: "response body did not match"}
 	}
 	return Result{Success: true}
+}
+
+func tlsConfig(serverName string, insecure bool, caBundle []byte) (*tls.Config, error) {
+	config := &tls.Config{ServerName: serverName, MinVersion: tls.VersionTLS12, InsecureSkipVerify: insecure} // #nosec G402 -- insecure mode is an explicit API opt-in
+	if len(caBundle) == 0 {
+		return config, nil
+	}
+	pool, err := x509.SystemCertPool()
+	if err != nil || pool == nil {
+		pool = x509.NewCertPool()
+	}
+	if !pool.AppendCertsFromPEM(caBundle) {
+		return nil, fmt.Errorf("invalid CA bundle")
+	}
+	config.RootCAs = pool
+	return config, nil
 }
 
 // Aggregate applies deterministic composition semantics to probe outcomes.

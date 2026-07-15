@@ -230,6 +230,11 @@ func (in *FailoverProbeSpec) DeepCopyInto(out *FailoverProbeSpec) {
 		*out = new(corev1.SecretKeySelector)
 		(*in).DeepCopyInto(*out)
 	}
+	if in.CABundleSecretRef != nil {
+		in, out := &in.CABundleSecretRef, &out.CABundleSecretRef
+		*out = new(corev1.SecretKeySelector)
+		(*in).DeepCopyInto(*out)
+	}
 	if in.Headers != nil {
 		in, out := &in.Headers, &out.Headers
 		*out = make([]ProbeHeader, len(*in))

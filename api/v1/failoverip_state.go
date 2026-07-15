@@ -139,6 +139,9 @@ func validateNetworkProbeSpec(spec FailoverProbeSpec) error {
 	if spec.InsecureSkipVerify && spec.Type != ProbeTypeTLS && spec.Type != ProbeTypeHTTPS {
 		return fmt.Errorf("insecureSkipVerify is only valid for TLS and HTTPS probes")
 	}
+	if spec.CABundleSecretRef != nil && spec.Type != ProbeTypeTLS && spec.Type != ProbeTypeHTTPS {
+		return fmt.Errorf("caBundleSecretRef is only valid for TLS and HTTPS probes")
+	}
 	if len(spec.Headers) > 32 {
 		return fmt.Errorf("probe has too many headers")
 	}

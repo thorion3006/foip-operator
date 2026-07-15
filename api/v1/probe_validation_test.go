@@ -1,6 +1,10 @@
 package v1
 
-import "testing"
+import (
+	"testing"
+
+	corev1 "k8s.io/api/core/v1"
+)
 
 func TestValidateProbeSpec(t *testing.T) {
 	valid := FailoverProbeSpec{Phase: ProbePhasePreRoute, Type: ProbeTypeTCP, Target: ProbeTarget{Address: "${targetNodeIP}", Port: 443}}
@@ -16,6 +20,7 @@ func TestValidateProbeSpec(t *testing.T) {
 		{Phase: ProbePhasePreRoute, Type: ProbeTypeHTTP, Target: ProbeTarget{Address: "node", Port: 80}, ExpectedStatusMin: 500, ExpectedStatusMax: 200},
 		{Phase: ProbePhasePreRoute, Type: ProbeTypeHTTP, Target: ProbeTarget{Address: "node", Port: 80}, ExpectedStatusMin: 600},
 		{Phase: ProbePhasePreRoute, Type: ProbeTypeHTTP, Target: ProbeTarget{Address: "node", Port: 80}, ExpectedStatusMax: 600},
+		{Phase: ProbePhasePreRoute, Type: ProbeTypeHTTP, Target: ProbeTarget{Address: "node", Port: 80}, CABundleSecretRef: &corev1.SecretKeySelector{Key: "ca"}},
 	}
 	for i, spec := range tests {
 		if err := ValidateProbeSpec(spec); err == nil {

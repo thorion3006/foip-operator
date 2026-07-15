@@ -193,6 +193,7 @@ type FailoverProbeSpec struct {
 	InsecureSkipVerify  bool                       `json:"insecureSkipVerify,omitempty"`
 	CredentialSecretRef *corev1.SecretKeySelector  `json:"credentialSecretRef,omitempty"`
 	CredentialHeader    string                     `json:"credentialHeader,omitempty"`
+	CABundleSecretRef   *corev1.SecretKeySelector  `json:"caBundleSecretRef,omitempty"`
 	Method              string                     `json:"method,omitempty"`
 	ExpectedStatusMin   int32                      `json:"expectedStatusMin,omitempty"`
 	ExpectedStatusMax   int32                      `json:"expectedStatusMax,omitempty"`

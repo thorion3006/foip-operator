@@ -98,6 +98,18 @@ func TestHTTPProbeMatchesMethodStatusBodyAndHeaders(t *testing.T) {
 	}
 }
 
+func TestTLSProbeRejectsInvalidCABundle(t *testing.T) {
+	result := ExecuteWithCredentialAndCABundle(context.Background(), netcupv1.FailoverProbeSpec{
+		Phase:         netcupv1.ProbePhasePreRoute,
+		Type:          netcupv1.ProbeTypeTLS,
+		Target:        netcupv1.ProbeTarget{Address: "127.0.0.1", Port: 443},
+		NetworkPolicy: netcupv1.ProbeNetworkPolicy{AllowPrivateNetworks: true},
+	}, "", []byte("not a certificate"))
+	if result.Success || result.Reason != "invalid CA bundle" {
+		t.Fatalf("result = %#v, want invalid CA bundle", result)
+	}
+}
+
 func TestHTTPProbeRejectsUnexpectedStatusAndBody(t *testing.T) {
 	server := newLoopbackServer(t, "127.0.0.1", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
