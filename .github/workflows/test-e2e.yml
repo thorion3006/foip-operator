@@ -20,7 +20,7 @@ jobs:
           go-version-file: go.mod
 
       - name: Run deterministic validation checks
-        run: go test ./test/e2e -run 'TestReleaseWorkflow' -count=1 -v
+        run: go test ./test/e2e -run 'TestPersistedState|TestReleaseWorkflow' -count=1 -v
 
   test-e2e:
     name: Run on Ubuntu
