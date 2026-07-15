@@ -18,6 +18,9 @@ spec:
   {{- with .minHealthySeconds }}
   minHealthySeconds: {{ . }}
   {{- end }}
+  {{- with .recoveryPolicy }}
+  recoveryPolicy: {{ . }}
+  {{- end }}
   {{- with .probes }}
   probes:
     {{- toYaml . | nindent 4 }}

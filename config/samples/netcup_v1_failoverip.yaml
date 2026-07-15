@@ -10,3 +10,4 @@ spec:
   secretName: netcup-scp-credentials
   providerCooldownSeconds: 60
   stabilizationSeconds: 30
+  recoveryPolicy: HoldDualOwnership

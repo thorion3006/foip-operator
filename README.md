@@ -133,6 +133,10 @@ Inspect `status.phase`, `status.transitionID`, `status.targetNode`, and the
 handoff requires exactly one reported local owner; `Degraded` and `Blocked`
 are explicit safety states, not transient log messages.
 
+Set `spec.recoveryPolicy` to `HoldDualOwnership` (the safe default),
+`RollbackProvider`, `CommitDegraded`, or `ManualIntervention` to choose the
+post-route probe failure behavior.
+
 ### Troubleshooting
 
 Check logs across all operator pods:
