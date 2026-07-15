@@ -305,7 +305,7 @@ func (r *FailoverIpReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		return ctrl.Result{RequeueAfter: preparationPollInterval}, nil
 	}
 	if foip.Status.Phase == netcupv1.FailoverPhaseTargetPrepared || foip.Status.Phase == netcupv1.FailoverPhaseRoutingProvider {
-		if err := evaluateProbePhase(ctx, r.APIReader, foip, netcupv1.ProbePhasePreRoute); err != nil {
+		if err := evaluateProbePhase(ctx, r.Client, foip, netcupv1.ProbePhasePreRoute); err != nil {
 			patch := client.MergeFrom(foip.DeepCopy())
 			foip.Status.LastError = err.Error()
 			if patchErr := r.Status().Patch(ctx, &foip, patch); patchErr != nil {
@@ -418,7 +418,7 @@ func (r *FailoverIpReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		}
 		return ctrl.Result{RequeueAfter: preparationPollInterval}, nil
 	}
-	if err := evaluateProbePhase(ctx, r.APIReader, foip, netcupv1.ProbePhasePostRoute); err != nil {
+	if err := evaluateProbePhase(ctx, r.Client, foip, netcupv1.ProbePhasePostRoute); err != nil {
 		commitDegraded, recoveryResult, recoveryErr := r.recoverPostRouteFailure(ctx, &foip, nc, foipID)
 		if recoveryErr != nil {
 			return ctrl.Result{}, recoveryErr

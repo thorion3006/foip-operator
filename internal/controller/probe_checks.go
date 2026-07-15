@@ -7,6 +7,7 @@ import (
 	netcupv1 "github.com/thorion3006/foip-operator/api/v1"
 	"github.com/thorion3006/foip-operator/internal/probe"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -32,13 +33,12 @@ func evaluateProbePhase(ctx context.Context, reader client.Reader, foip netcupv1
 			composition = resource.Spec.Composition
 			quorum = resource.Spec.Quorum
 		}
+		var result probe.Result
 		if resource.Spec.Type == netcupv1.ProbeTypeKubernetes {
-			results = append(results, probe.ExecuteKubernetes(ctx, reader, resource.Spec.Kubernetes))
+			result = probe.ExecuteKubernetes(ctx, reader, resource.Spec.Kubernetes)
+		} else if resource.Spec.CredentialSecretRef == nil {
+			result = probe.Execute(ctx, resource.Spec)
 		} else {
-			if resource.Spec.CredentialSecretRef == nil {
-				results = append(results, probe.Execute(ctx, resource.Spec))
-				continue
-			}
 			var secret corev1.Secret
 			if err := reader.Get(ctx, client.ObjectKey{Name: resource.Spec.CredentialSecretRef.Name, Namespace: foip.Namespace}, &secret); err != nil {
 				return fmt.Errorf("loading probe credential Secret: %w", err)
@@ -47,7 +47,13 @@ func evaluateProbePhase(ctx context.Context, reader client.Reader, foip netcupv1
 			if len(credential) == 0 {
 				return fmt.Errorf("probe credential Secret key is empty")
 			}
-			results = append(results, probe.ExecuteWithCredential(ctx, resource.Spec, string(credential)))
+			result = probe.ExecuteWithCredential(ctx, resource.Spec, string(credential))
+		}
+		results = append(results, result)
+		if writer, ok := reader.(client.Client); ok {
+			if err := persistProbeObservation(ctx, writer, &resource, result); err != nil {
+				return err
+			}
 		}
 	}
 	if len(results) == 0 {
@@ -58,4 +64,42 @@ func evaluateProbePhase(ctx context.Context, reader client.Reader, foip netcupv1
 		return fmt.Errorf("%s probe gate failed: %s", phase, result.Reason)
 	}
 	return nil
+}
+
+func persistProbeObservation(ctx context.Context, writer client.Client, resource *netcupv1.FailoverProbe, result probe.Result) error {
+	patch := client.MergeFrom(resource.DeepCopy())
+	now := metav1.Now()
+	observation := netcupv1.ProbeObservation{Name: resource.Name, Success: result.Success, Reason: result.Reason, ObservedAt: now}
+	found := false
+	for i := range resource.Status.Observations {
+		if resource.Status.Observations[i].Name == resource.Name {
+			resource.Status.Observations[i] = observation
+			found = true
+			break
+		}
+	}
+	if !found {
+		resource.Status.Observations = append(resource.Status.Observations, observation)
+	}
+	conditionStatus := metav1.ConditionTrue
+	reason := "ProbeSucceeded"
+	message := "Probe execution succeeded"
+	if !result.Success {
+		conditionStatus = metav1.ConditionFalse
+		reason = "ProbeFailed"
+		message = "Probe execution failed"
+	}
+	setProbeCondition(&resource.Status, conditionStatus, reason, message, now)
+	return writer.Status().Patch(ctx, resource, patch)
+}
+
+func setProbeCondition(status *netcupv1.FailoverProbeStatus, conditionStatus metav1.ConditionStatus, reason, message string, now metav1.Time) {
+	condition := metav1.Condition{Type: "Ready", Status: conditionStatus, Reason: reason, Message: message, LastTransitionTime: now}
+	for i := range status.Conditions {
+		if status.Conditions[i].Type == "Ready" {
+			status.Conditions[i] = condition
+			return
+		}
+	}
+	status.Conditions = append(status.Conditions, condition)
 }
