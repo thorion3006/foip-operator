@@ -91,7 +91,7 @@ func TestRecoverPostRouteFailurePolicies(t *testing.T) {
 				objects = append(objects, tt.node)
 			}
 			client := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(foip).WithRuntimeObjects(objects...).Build()
-			provider := &countingFailoverIPClient{fakeFailoverIPClient: fakeFailoverIPClient{routeErr: tt.providerError}}
+			provider := &countingFailoverIPClient{fakeFailoverIPClient: fakeFailoverIPClient{serverID: 202, routeTarget: 101, routeErr: tt.providerError}}
 			reconciler := &FailoverIpReconciler{Client: client, APIReader: client, Scheme: scheme}
 
 			commit, result, err := reconciler.recoverPostRouteFailure(ctx, foip, provider, 17)
@@ -154,6 +154,62 @@ func TestRecoveryRollbackCooldownAndProviderFailures(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestRollbackRecoveryIsIdempotentAndFenced(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := netcupv1.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	if err := corev1.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "source", Annotations: map[string]string{netcupv1.ServerIDAnnotation: "101"}}}
+	newResource := func(providerOwner string) *netcupv1.FailoverIp {
+		return &netcupv1.FailoverIp{
+			ObjectMeta: metav1.ObjectMeta{Name: "recovery", Namespace: "default"},
+			Spec:       netcupv1.FailoverIpSpec{RecoveryPolicy: netcupv1.RecoveryPolicyRollbackProvider},
+			Status: netcupv1.FailoverIpStatus{
+				SourceNode:            "source",
+				ProviderObservedOwner: providerOwner,
+			},
+		}
+	}
+
+	t.Run("already rolled back does not mutate again", func(t *testing.T) {
+		provider := &countingFailoverIPClient{fakeFailoverIPClient: fakeFailoverIPClient{serverID: 101}}
+		resource := newResource("202")
+		client := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(resource).WithRuntimeObjects(resource, node).Build()
+		reconciler := &FailoverIpReconciler{Client: client, APIReader: client, Scheme: scheme}
+		_, _, err := reconciler.recoverPostRouteFailure(context.Background(), resource, provider, 17)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if provider.routeCalls != 0 {
+			t.Fatalf("rollback calls = %d, want 0", provider.routeCalls)
+		}
+	})
+
+	t.Run("out of band owner blocks rollback", func(t *testing.T) {
+		provider := &countingFailoverIPClient{fakeFailoverIPClient: fakeFailoverIPClient{serverID: 303}}
+		resource := newResource("202")
+		client := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(resource).WithRuntimeObjects(resource, node).Build()
+		reconciler := &FailoverIpReconciler{Client: client, APIReader: client, Scheme: scheme}
+		_, _, err := reconciler.recoverPostRouteFailure(context.Background(), resource, provider, 17)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if provider.routeCalls != 0 {
+			t.Fatalf("rollback calls = %d, want 0", provider.routeCalls)
+		}
+		var stored netcupv1.FailoverIp
+		if err := client.Get(context.Background(), clientKey("recovery", "default"), &stored); err != nil {
+			t.Fatal(err)
+		}
+		if stored.Status.Phase != netcupv1.FailoverPhaseBlocked {
+			t.Fatalf("phase = %q, want Blocked", stored.Status.Phase)
+		}
+	})
 }
 
 func TestProbeGatesByPhase(t *testing.T) {

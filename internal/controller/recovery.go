@@ -59,6 +59,20 @@ func (r *FailoverIpReconciler) recoverPostRouteFailure(ctx context.Context, foip
 		if err != nil {
 			return r.persistRecoveryState(ctx, foip, netcupv1.FailoverPhaseBlocked, "RollbackProvider source annotation is invalid", "RollbackUnavailable", now)
 		}
+		_, observedServerID, err := nc.FindFailoverIP(ctx, foip.Spec.IP)
+		if err != nil {
+			return r.persistRecoveryState(ctx, foip, netcupv1.FailoverPhaseBlocked, "RollbackProvider could not verify current provider ownership", "RollbackUnavailable", now)
+		}
+		observedOwner := strconv.Itoa(observedServerID)
+		if err := validateProviderRecoveryFence(foip.Status, observedOwner, strconv.Itoa(sourceServerID)); err != nil {
+			return r.persistRecoveryState(ctx, foip, netcupv1.FailoverPhaseBlocked, "RollbackProvider detected an out-of-band provider owner", "ProviderOwnershipChanged", now)
+		}
+		if observedServerID == sourceServerID {
+			confirmedAt := metav1.Now()
+			foip.Status.LastConfirmedProviderMutationAt = &confirmedAt
+			foip.Status.ProviderObservedOwner = observedOwner
+			return r.persistRecoveryState(ctx, foip, netcupv1.FailoverPhaseDegraded, "provider was already rolled back; traffic still requires intervention", "RollbackAlreadyConverged", now)
+		}
 		next, allowed := providerMutationGate(foip.Status, providerCooldown(foip.Spec), time.Now())
 		if !allowed {
 			patch := client.MergeFrom(foip.DeepCopy())
@@ -79,6 +93,13 @@ func (r *FailoverIpReconciler) recoverPostRouteFailure(ctx context.Context, foip
 		if err := nc.RouteFailoverIP(ctx, foipID, sourceServerID); err != nil {
 			return r.persistRecoveryState(ctx, foip, netcupv1.FailoverPhaseBlocked, "provider rollback failed", "RollbackFailed", now)
 		}
+		_, observedServerID, err = nc.FindFailoverIP(ctx, foip.Spec.IP)
+		if err != nil || observedServerID != sourceServerID {
+			return r.persistRecoveryState(ctx, foip, netcupv1.FailoverPhaseBlocked, "provider rollback did not converge to the source owner", "RollbackUnverified", now)
+		}
+		confirmedAt := metav1.Now()
+		foip.Status.LastConfirmedProviderMutationAt = &confirmedAt
+		foip.Status.ProviderObservedOwner = strconv.Itoa(sourceServerID)
 		return r.persistRecoveryState(ctx, foip, netcupv1.FailoverPhaseDegraded, "provider rolled back; traffic still requires intervention", "RollbackSucceeded", now)
 
 	case netcupv1.RecoveryPolicyHoldDualOwnership:

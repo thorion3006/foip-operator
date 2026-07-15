@@ -67,3 +67,12 @@ func validateProviderFence(status netcupv1.FailoverIpStatus, observedOwner, targ
 	}
 	return nil
 }
+
+// validateProviderRecoveryFence permits the one expected owner change made by
+// a persisted rollback while still rejecting an unrelated out-of-band owner.
+func validateProviderRecoveryFence(status netcupv1.FailoverIpStatus, observedOwner, expectedOwner string) error {
+	if status.ProviderObservedOwner != "" && status.ProviderObservedOwner != observedOwner && observedOwner != expectedOwner {
+		return fmt.Errorf("provider owner changed out of band from %s to %s", status.ProviderObservedOwner, observedOwner)
+	}
+	return nil
+}
