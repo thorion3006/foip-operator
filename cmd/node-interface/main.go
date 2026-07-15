@@ -16,7 +16,8 @@ limitations under the License.
 
 // cmd/node-interface is the entry point for the per-node interface controller.
 // It runs as a DaemonSet with NET_ADMIN and assigns failover IPs to the local
-// network interface when desiredNode points to this node.
+// network interface when the persisted transition identifies this node as a
+// source or target owner.
 package main
 
 import (

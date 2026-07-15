@@ -41,10 +41,9 @@ import (
 	"github.com/thorion3006/foip-operator/internal/observability"
 )
 
-// NodeInterfaceReconciler runs on every node and reconciles local ownership of
-// each failover IP. During a handoff both assignedNode (old owner) and
-// desiredNode (new owner) retain the address. Once assignedNode converges to
-// desiredNode, every non-owner removes the address.
+// NodeInterfaceReconciler runs on every node and reports local /32 ownership
+// for each persisted failover transition. During a handoff the source and
+// target may both retain the address until the controller commits cleanup.
 type NodeInterfaceReconciler struct {
 	client.Client
 	Scheme   *runtime.Scheme

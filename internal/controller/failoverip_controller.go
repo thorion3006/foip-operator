@@ -50,11 +50,9 @@ const (
 	providerVerifyAttempts  = 15
 )
 
-// FailoverIpReconciler implements a two-phase, make-before-break handoff:
-//  1. desiredNode is selected while assignedNode remains the old owner.
-//  2. the target node agent adds the /32 and reports preparedNode.
-//  3. the controller changes and verifies the Netcup route.
-//  4. assignedNode advances to desiredNode, allowing old nodes to clean up.
+// FailoverIpReconciler implements a persisted, make-before-break state machine:
+// candidate selection and stabilization precede local preparation, provider
+// routing, traffic verification, commit, and stale-owner cleanup.
 type FailoverIpReconciler struct {
 	client.Client
 	Scheme    *runtime.Scheme
@@ -367,7 +365,7 @@ func (r *FailoverIpReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		observability.ObserveProviderCall("netcup", "route_failover_ip", time.Since(routeStart), nil)
 
 		// Netcup operations are asynchronous. Re-read the authoritative provider
-		// state before advancing assignedNode and allowing stale-owner cleanup.
+		// state before advancing the persisted provider-verification phase.
 		verified := false
 		for range providerVerifyAttempts {
 			verifyStart := time.Now()
