@@ -8,16 +8,11 @@ rules:
   - ""
   resources:
   - nodes
+  - secrets
   verbs:
   - get
   - list
   - watch
-- apiGroups:
-  - ""
-  resources:
-  - secrets
-  verbs:
-  - get
 - apiGroups:
   - foip.noshoes.xyz
   resources:

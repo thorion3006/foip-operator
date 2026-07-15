@@ -62,6 +62,7 @@ const (
 )
 
 // FailoverIpSpec defines the desired state of FailoverIp.
+// +kubebuilder:validation:XValidation:rule="(!has(self.probeComposition) || self.probeComposition != 'Quorum') ? !has(self.probeQuorum) : has(self.probeQuorum) && self.probeQuorum >= 1",message="probeQuorum is required only for Quorum composition"
 type FailoverIpSpec struct {
 	// IP is the failover IP address to manage, without a prefix length.
 	// +kubebuilder:validation:Required
@@ -177,8 +178,10 @@ type KubernetesReadinessTarget struct {
 }
 
 // FailoverProbeSpec defines a reusable, composable health check.
+// +kubebuilder:validation:XValidation:rule="(!has(self.composition) || self.composition != 'Quorum') ? !has(self.quorum) : has(self.quorum) && self.quorum >= 1",message="quorum is required only for Quorum composition"
 type FailoverProbeSpec struct {
 	// +kubebuilder:validation:Enum=PreRoute;PostRoute;Continuous
+	// +kubebuilder:validation:Required
 	Phase ProbePhase `json:"phase"`
 	// +kubebuilder:validation:Enum=All;Any;Quorum
 	Composition ProbeComposition `json:"composition,omitempty"`
@@ -186,25 +189,35 @@ type FailoverProbeSpec struct {
 	// +kubebuilder:validation:Minimum=1
 	Quorum int32 `json:"quorum,omitempty"`
 	// +kubebuilder:validation:Enum=TCP;TLS;HTTP;HTTPS;Kubernetes
-	Type                ProbeType                  `json:"type"`
-	Target              ProbeTarget                `json:"target,omitempty"`
-	NetworkPolicy       ProbeNetworkPolicy         `json:"networkPolicy,omitempty"`
-	Kubernetes          *KubernetesReadinessTarget `json:"kubernetes,omitempty"`
-	TimeoutSeconds      int32                      `json:"timeoutSeconds,omitempty"`
-	IntervalSeconds     int32                      `json:"intervalSeconds,omitempty"`
-	SuccessThreshold    int32                      `json:"successThreshold,omitempty"`
-	FailureThreshold    int32                      `json:"failureThreshold,omitempty"`
-	InitialDelaySeconds int32                      `json:"initialDelaySeconds,omitempty"`
-	FollowRedirects     bool                       `json:"followRedirects,omitempty"`
-	InsecureSkipVerify  bool                       `json:"insecureSkipVerify,omitempty"`
-	CredentialSecretRef *corev1.SecretKeySelector  `json:"credentialSecretRef,omitempty"`
-	CredentialHeader    string                     `json:"credentialHeader,omitempty"`
-	CABundleSecretRef   *corev1.SecretKeySelector  `json:"caBundleSecretRef,omitempty"`
-	Method              string                     `json:"method,omitempty"`
-	ExpectedStatusMin   int32                      `json:"expectedStatusMin,omitempty"`
-	ExpectedStatusMax   int32                      `json:"expectedStatusMax,omitempty"`
-	BodyMatch           string                     `json:"bodyMatch,omitempty"`
-	Headers             []ProbeHeader              `json:"headers,omitempty"`
+	// +kubebuilder:validation:Required
+	Type          ProbeType                  `json:"type"`
+	Target        ProbeTarget                `json:"target,omitempty"`
+	NetworkPolicy ProbeNetworkPolicy         `json:"networkPolicy,omitempty"`
+	Kubernetes    *KubernetesReadinessTarget `json:"kubernetes,omitempty"`
+	// +kubebuilder:validation:Minimum=0
+	TimeoutSeconds int32 `json:"timeoutSeconds,omitempty"`
+	// +kubebuilder:validation:Minimum=0
+	IntervalSeconds int32 `json:"intervalSeconds,omitempty"`
+	// +kubebuilder:validation:Minimum=0
+	SuccessThreshold int32 `json:"successThreshold,omitempty"`
+	// +kubebuilder:validation:Minimum=0
+	FailureThreshold int32 `json:"failureThreshold,omitempty"`
+	// +kubebuilder:validation:Minimum=0
+	InitialDelaySeconds int32                     `json:"initialDelaySeconds,omitempty"`
+	FollowRedirects     bool                      `json:"followRedirects,omitempty"`
+	InsecureSkipVerify  bool                      `json:"insecureSkipVerify,omitempty"`
+	CredentialSecretRef *corev1.SecretKeySelector `json:"credentialSecretRef,omitempty"`
+	CredentialHeader    string                    `json:"credentialHeader,omitempty"`
+	CABundleSecretRef   *corev1.SecretKeySelector `json:"caBundleSecretRef,omitempty"`
+	Method              string                    `json:"method,omitempty"`
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=599
+	ExpectedStatusMin int32 `json:"expectedStatusMin,omitempty"`
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=599
+	ExpectedStatusMax int32         `json:"expectedStatusMax,omitempty"`
+	BodyMatch         string        `json:"bodyMatch,omitempty"`
+	Headers           []ProbeHeader `json:"headers,omitempty"`
 }
 
 // ProbeObservation contains only non-sensitive result metadata.

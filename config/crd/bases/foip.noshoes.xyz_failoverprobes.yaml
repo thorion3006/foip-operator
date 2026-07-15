@@ -111,12 +111,17 @@ spec:
                 x-kubernetes-map-type: atomic
               expectedStatusMax:
                 format: int32
+                maximum: 599
+                minimum: 0
                 type: integer
               expectedStatusMin:
                 format: int32
+                maximum: 599
+                minimum: 0
                 type: integer
               failureThreshold:
                 format: int32
+                minimum: 0
                 type: integer
               followRedirects:
                 type: boolean
@@ -133,11 +138,13 @@ spec:
                 type: array
               initialDelaySeconds:
                 format: int32
+                minimum: 0
                 type: integer
               insecureSkipVerify:
                 type: boolean
               intervalSeconds:
                 format: int32
+                minimum: 0
                 type: integer
               kubernetes:
                 description: KubernetesReadinessTarget describes a Kubernetes object
@@ -191,6 +198,7 @@ spec:
                 type: integer
               successThreshold:
                 format: int32
+                minimum: 0
                 type: integer
               target:
                 description: ProbeTarget describes the endpoint independently of any
@@ -212,6 +220,7 @@ spec:
                 type: object
               timeoutSeconds:
                 format: int32
+                minimum: 0
                 type: integer
               type:
                 description: ProbeType identifies a provider-neutral executor.
@@ -226,6 +235,10 @@ spec:
             - phase
             - type
             type: object
+            x-kubernetes-validations:
+            - message: quorum is required only for Quorum composition
+              rule: '(!has(self.composition) || self.composition != ''Quorum'') ?
+                !has(self.quorum) : has(self.quorum) && self.quorum >= 1'
           status:
             properties:
               conditions:

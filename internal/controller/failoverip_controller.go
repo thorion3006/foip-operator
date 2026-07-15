@@ -75,7 +75,7 @@ var newFailoverIPClient = func(userID int, refreshToken string) failoverIPClient
 // +kubebuilder:rbac:groups=foip.noshoes.xyz,resources=failoverips;failoverprobes,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=foip.noshoes.xyz,resources=failoverips/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch
-// +kubebuilder:rbac:groups="",resources=secrets,verbs=get
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
 func (r *FailoverIpReconciler) Reconcile(ctx context.Context, req ctrl.Request) (res ctrl.Result, err error) { //nolint:gocyclo // this method coordinates persisted safety gates
 	start := time.Now()
 	currentPhase := ""
@@ -622,6 +622,48 @@ func (r *FailoverIpReconciler) probeToFoips(ctx context.Context, obj client.Obje
 	return reqs
 }
 
+func (r *FailoverIpReconciler) secretToFoips(ctx context.Context, obj client.Object) []reconcile.Request {
+	var foips netcupv1.FailoverIpList
+	if err := r.List(ctx, &foips, client.InNamespace(obj.GetNamespace())); err != nil {
+		return nil
+	}
+	var probes netcupv1.FailoverProbeList
+	if err := r.List(ctx, &probes, client.InNamespace(obj.GetNamespace())); err != nil {
+		return nil
+	}
+	probeNames := make(map[string]struct{})
+	for i := range probes.Items {
+		p := &probes.Items[i]
+		if (p.Spec.CredentialSecretRef != nil && p.Spec.CredentialSecretRef.Name == obj.GetName()) ||
+			(p.Spec.CABundleSecretRef != nil && p.Spec.CABundleSecretRef.Name == obj.GetName()) {
+			probeNames[p.Name] = struct{}{}
+		}
+	}
+	requests := make([]reconcile.Request, 0)
+	for i := range foips.Items {
+		foip := &foips.Items[i]
+		match := foip.Spec.SecretName == obj.GetName()
+		if !match {
+			for _, ref := range foip.Spec.Probes {
+				if _, ok := probeNames[ref.Name]; ok {
+					match = true
+					break
+				}
+			}
+		}
+		if match {
+			requests = append(requests, reconcile.Request{NamespacedName: types.NamespacedName{Name: foip.Name, Namespace: foip.Namespace}})
+		}
+	}
+	slices.SortFunc(requests, func(a, b reconcile.Request) int {
+		if a.Namespace != b.Namespace {
+			return slices.Compare([]string{a.Namespace}, []string{b.Namespace})
+		}
+		return slices.Compare([]string{a.Name}, []string{b.Name})
+	})
+	return requests
+}
+
 func (r *FailoverIpReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	r.APIReader = mgr.GetAPIReader()
 	r.Recorder = mgr.GetEventRecorderFor("foip-controller")
@@ -636,6 +678,11 @@ func (r *FailoverIpReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(
 			&netcupv1.FailoverProbe{},
 			handler.EnqueueRequestsFromMapFunc(r.probeToFoips),
+			builder.WithPredicates(predicate.ResourceVersionChangedPredicate{}),
+		).
+		Watches(
+			&corev1.Secret{},
+			handler.EnqueueRequestsFromMapFunc(r.secretToFoips),
 			builder.WithPredicates(predicate.ResourceVersionChangedPredicate{}),
 		).
 		Named("failoverip").

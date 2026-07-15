@@ -161,6 +161,11 @@ spec:
             - ip
             - secretName
             type: object
+            x-kubernetes-validations:
+            - message: probeQuorum is required only for Quorum composition
+              rule: '(!has(self.probeComposition) || self.probeComposition != ''Quorum'')
+                ? !has(self.probeQuorum) : has(self.probeQuorum) && self.probeQuorum
+                >= 1'
           status:
             description: FailoverIpStatus defines the observed state of FailoverIp.
             properties:

@@ -111,6 +111,9 @@ func ValidateProbeSpec(spec FailoverProbeSpec) error {
 	if spec.Composition == ProbeCompositionQuorum && spec.Quorum < 1 {
 		return fmt.Errorf("quorum must be at least one")
 	}
+	if spec.Composition != ProbeCompositionQuorum && spec.Quorum != 0 {
+		return fmt.Errorf("quorum is only valid for quorum composition")
+	}
 	if spec.Composition != "" && spec.Composition != ProbeCompositionAll &&
 		spec.Composition != ProbeCompositionAny && spec.Composition != ProbeCompositionQuorum {
 		return fmt.Errorf("unsupported probe composition %q", spec.Composition)
@@ -140,8 +143,14 @@ func validateNetworkProbeSpec(spec FailoverProbeSpec) error {
 	if spec.InsecureSkipVerify && spec.Type != ProbeTypeTLS && spec.Type != ProbeTypeHTTPS {
 		return fmt.Errorf("insecureSkipVerify is only valid for TLS and HTTPS probes")
 	}
+	if spec.CredentialSecretRef != nil && spec.Type != ProbeTypeHTTP && spec.Type != ProbeTypeHTTPS {
+		return fmt.Errorf("credentialSecretRef is only valid for HTTP and HTTPS probes")
+	}
 	if spec.CABundleSecretRef != nil && spec.Type != ProbeTypeTLS && spec.Type != ProbeTypeHTTPS {
 		return fmt.Errorf("caBundleSecretRef is only valid for TLS and HTTPS probes")
+	}
+	if spec.TimeoutSeconds < 0 || spec.IntervalSeconds < 0 || spec.SuccessThreshold < 0 || spec.FailureThreshold < 0 || spec.InitialDelaySeconds < 0 {
+		return fmt.Errorf("probe timing and threshold values cannot be negative")
 	}
 	if len(spec.Headers) > 32 {
 		return fmt.Errorf("probe has too many headers")
@@ -164,6 +173,9 @@ func ValidateFailoverIpSpec(spec FailoverIpSpec) error {
 	}
 	if spec.ProbeComposition == ProbeCompositionQuorum && spec.ProbeQuorum < 1 {
 		return fmt.Errorf("probeQuorum must be at least one for quorum composition")
+	}
+	if spec.ProbeComposition != ProbeCompositionQuorum && spec.ProbeQuorum != 0 {
+		return fmt.Errorf("probeQuorum is only valid for quorum composition")
 	}
 	if spec.ProbeComposition != "" && spec.ProbeComposition != ProbeCompositionAll &&
 		spec.ProbeComposition != ProbeCompositionAny && spec.ProbeComposition != ProbeCompositionQuorum {

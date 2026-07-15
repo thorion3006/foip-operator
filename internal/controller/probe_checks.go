@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 
 	netcupv1 "github.com/thorion3006/foip-operator/api/v1"
@@ -16,13 +17,17 @@ func evaluateProbePhase(ctx context.Context, reader client.Reader, foip netcupv1
 	if len(foip.Spec.Probes) == 0 {
 		return nil
 	}
-	results := make([]probe.Result, 0, len(foip.Spec.Probes))
+	refs := append([]corev1.LocalObjectReference(nil), foip.Spec.Probes...)
+	slices.SortFunc(refs, func(a, b corev1.LocalObjectReference) int { return strings.Compare(a.Name, b.Name) })
+	results := make([]probe.Result, 0, len(refs))
 	composition := foip.Spec.ProbeComposition
 	if composition == "" {
 		composition = netcupv1.ProbeCompositionAll
 	}
 	quorum := foip.Spec.ProbeQuorum
-	for _, ref := range foip.Spec.Probes {
+	var referencedComposition netcupv1.ProbeComposition
+	var referencedQuorum int32
+	for _, ref := range refs {
 		var resource netcupv1.FailoverProbe
 		if err := reader.Get(ctx, client.ObjectKey{Name: ref.Name, Namespace: foip.Namespace}, &resource); err != nil {
 			return fmt.Errorf("loading probe %s: %w", ref.Name, err)
@@ -35,6 +40,11 @@ func evaluateProbePhase(ctx context.Context, reader client.Reader, foip netcupv1
 			return fmt.Errorf("resolving probe %s target: %w", ref.Name, err)
 		}
 		if foip.Spec.ProbeComposition == "" && resource.Spec.Composition != "" {
+			if referencedComposition != "" && (referencedComposition != resource.Spec.Composition || referencedQuorum != resource.Spec.Quorum) {
+				return fmt.Errorf("referenced probes have conflicting compositions")
+			}
+			referencedComposition = resource.Spec.Composition
+			referencedQuorum = resource.Spec.Quorum
 			composition = resource.Spec.Composition
 			quorum = resource.Spec.Quorum
 		}

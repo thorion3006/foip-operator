@@ -45,6 +45,36 @@ func TestValidateProbeSpecAcceptsHTTPMatchingConfiguration(t *testing.T) {
 	}
 }
 
+func TestValidateProbeSpecRejectsInvalidCombinations(t *testing.T) {
+	base := FailoverProbeSpec{Phase: ProbePhasePreRoute, Type: ProbeTypeHTTP, Target: ProbeTarget{Address: "example.com", Port: 80}}
+	tests := []struct {
+		name string
+		spec FailoverProbeSpec
+	}{
+		{name: "negative timeout", spec: func() FailoverProbeSpec { s := base; s.TimeoutSeconds = -1; return s }()},
+		{name: "any with quorum", spec: func() FailoverProbeSpec { s := base; s.Composition = ProbeCompositionAny; s.Quorum = 1; return s }()},
+		{name: "credential on TCP", spec: func() FailoverProbeSpec {
+			s := base
+			s.Type = ProbeTypeTCP
+			s.CredentialSecretRef = &corev1.SecretKeySelector{}
+			return s
+		}()},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := ValidateProbeSpec(tt.spec); err == nil {
+				t.Fatal("invalid probe was accepted")
+			}
+		})
+	}
+}
+
+func TestValidateFailoverIpSpecRejectsQuorumWithoutProbes(t *testing.T) {
+	if err := ValidateFailoverIpSpec(FailoverIpSpec{ProbeComposition: ProbeCompositionAny, ProbeQuorum: 1}); err == nil {
+		t.Fatal("non-quorum threshold was accepted")
+	}
+}
+
 func FuzzValidateProbeSpecNeverPanics(f *testing.F) {
 	f.Add("PreRoute", "TCP", "127.0.0.1", int32(443))
 	f.Add("Unknown", "Unknown", "${targetNodeIP}", int32(-1))
