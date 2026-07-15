@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strconv"
@@ -360,7 +361,12 @@ func (r *FailoverIpReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			if patchErr := r.Status().Patch(ctx, &foip, patch); patchErr != nil {
 				return ctrl.Result{}, patchErr
 			}
-			return ctrl.Result{RequeueAfter: retryDelay(foip.Spec, foip.Status.RetryCount)}, nil
+			delay := retryDelay(foip.Spec, foip.Status.RetryCount)
+			var providerErr *netcup.ProviderError
+			if errors.As(err, &providerErr) && providerErr.RetryAfter > delay {
+				delay = providerErr.RetryAfter
+			}
+			return ctrl.Result{RequeueAfter: delay}, nil
 		}
 		observability.ObserveProviderCall("netcup", "route_failover_ip", time.Since(routeStart), nil)
 
