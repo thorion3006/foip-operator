@@ -154,8 +154,14 @@ spec:
           status:
             description: FailoverIpStatus defines the observed state of FailoverIp.
             properties:
+              candidateFailureCount:
+                format: int32
+                type: integer
               candidateReason:
                 type: string
+              candidateRecoveryCount:
+                format: int32
+                type: integer
               candidateSince:
                 format: date-time
                 type: string

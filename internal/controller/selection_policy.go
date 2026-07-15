@@ -22,6 +22,20 @@ func minHealthyWindow(spec netcupv1.FailoverIpSpec) time.Duration {
 	return time.Duration(spec.MinHealthySeconds) * time.Second
 }
 
+func failureThreshold(spec netcupv1.FailoverIpSpec) int32 {
+	if spec.FailureThreshold <= 0 {
+		return 3
+	}
+	return spec.FailureThreshold
+}
+
+func recoveryThreshold(spec netcupv1.FailoverIpSpec) int32 {
+	if spec.RecoveryThreshold <= 0 {
+		return 2
+	}
+	return spec.RecoveryThreshold
+}
+
 // candidateReadyForHandoff makes the persisted candidate timer the gate for a
 // move; callers must retain the current owner while this returns false.
 func candidateReadyForHandoff(spec netcupv1.FailoverIpSpec, status netcupv1.FailoverIpStatus, candidate corev1.Node, now time.Time) bool {

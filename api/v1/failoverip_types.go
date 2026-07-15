@@ -260,6 +260,8 @@ type FailoverIpStatus struct {
 	LastTransitionAt                *metav1.Time   `json:"lastTransitionAt,omitempty"`
 	CandidateSince                  *metav1.Time   `json:"candidateSince,omitempty"`
 	CandidateReason                 string         `json:"candidateReason,omitempty"`
+	CandidateFailureCount           int32          `json:"candidateFailureCount,omitempty"`
+	CandidateRecoveryCount          int32          `json:"candidateRecoveryCount,omitempty"`
 	RecoveryAction                  RecoveryPolicy `json:"recoveryAction,omitempty"`
 	RecoveryAttempts                int32          `json:"recoveryAttempts,omitempty"`
 	ManualReconcileToken            string         `json:"manualReconcileToken,omitempty"`

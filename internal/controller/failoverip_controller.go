@@ -199,11 +199,21 @@ func (r *FailoverIpReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	better := betterNode(candidates, foip.Status.TargetNode)
 	if better == nil && foip.Status.Phase == netcupv1.FailoverPhaseStabilizing && foip.Status.CandidateSince != nil {
 		patch := client.MergeFrom(foip.DeepCopy())
+		foip.Status.CandidateRecoveryCount++
+		if foip.Status.CandidateRecoveryCount < recoveryThreshold(foip.Spec) {
+			if err := r.Status().Patch(ctx, &foip, patch); err != nil {
+				return ctrl.Result{}, err
+			}
+			return ctrl.Result{RequeueAfter: preparationPollInterval}, nil
+		}
+		patch = client.MergeFrom(foip.DeepCopy())
 		now := metav1.Now()
 		if err := netcupv1.AdvanceTransition(&foip.Status, netcupv1.FailoverPhaseSelecting, now); err != nil {
 			return ctrl.Result{}, err
 		}
 		foip.Status.CandidateSince = nil
+		foip.Status.CandidateFailureCount = 0
+		foip.Status.CandidateRecoveryCount = 0
 		foip.Status.CandidateReason = "current owner recovered during stabilization"
 		netcupv1.SetCondition(&foip.Status, netcupv1.ConditionStabilizing, metav1.ConditionFalse, "CandidateRecovered", "Canceled candidate after current owner recovery", now)
 		if err := r.Status().Patch(ctx, &foip, patch); err != nil {
@@ -226,6 +236,14 @@ func (r *FailoverIpReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			return ctrl.Result{RequeueAfter: preparationPollInterval}, nil
 		}
 		candidate := *better
+		patch := client.MergeFrom(foip.DeepCopy())
+		foip.Status.CandidateFailureCount++
+		if foip.Status.CandidateFailureCount < failureThreshold(foip.Spec) {
+			if err := r.Status().Patch(ctx, &foip, patch); err != nil {
+				return ctrl.Result{}, err
+			}
+			return ctrl.Result{RequeueAfter: preparationPollInterval}, nil
+		}
 		if foip.Status.CandidateSince == nil {
 			patch := client.MergeFrom(foip.DeepCopy())
 			now := metav1.Now()
@@ -247,12 +265,14 @@ func (r *FailoverIpReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			remaining = max(remaining, time.Second)
 			return ctrl.Result{RequeueAfter: remaining}, nil
 		}
-		patch := client.MergeFrom(foip.DeepCopy())
+		patch = client.MergeFrom(foip.DeepCopy())
 		foip.Status.SourceNode = foip.Status.TargetNode
 		foip.Status.TargetNode = better.Name
 		foip.Status.LocalOwners = nil
 		foip.Status.CandidateSince = nil
 		foip.Status.CandidateReason = ""
+		foip.Status.CandidateFailureCount = 0
+		foip.Status.CandidateRecoveryCount = 0
 		if foip.Status.Phase == netcupv1.FailoverPhaseStabilizing {
 			now := metav1.Now()
 			if err := netcupv1.AdvanceTransition(&foip.Status, netcupv1.FailoverPhasePreparingTarget, now); err != nil {

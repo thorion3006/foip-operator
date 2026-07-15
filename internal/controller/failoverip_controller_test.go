@@ -79,8 +79,9 @@ func TestFailoverIpReconciler_SelectsNodeAndUpdatesStatus(t *testing.T) {
 			Namespace: namespace,
 		},
 		Spec: netcupv1.FailoverIpSpec{
-			IP:         failoverIP,
-			SecretName: secretName,
+			IP:               failoverIP,
+			SecretName:       secretName,
+			FailureThreshold: 1,
 		},
 	}
 	if err := k8sClient.Create(ctx, resource); err != nil {
