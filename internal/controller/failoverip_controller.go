@@ -155,12 +155,30 @@ func (r *FailoverIpReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	better := betterNode(candidates, foip.Status.TargetNode)
 
 	if better != nil && better.Name != foip.Status.TargetNode {
+		if foip.Status.Phase == netcupv1.FailoverPhaseSucceeded || foip.Status.Phase == netcupv1.FailoverPhaseDegraded {
+			patch := client.MergeFrom(foip.DeepCopy())
+			now := metav1.Now()
+			if err := netcupv1.AdvanceTransition(&foip.Status, netcupv1.FailoverPhaseSelecting, now); err != nil {
+				return ctrl.Result{}, err
+			}
+			foip.Status.CandidateSince = nil
+			if err := r.Status().Patch(ctx, &foip, patch); err != nil {
+				return ctrl.Result{}, err
+			}
+			return ctrl.Result{RequeueAfter: preparationPollInterval}, nil
+		}
 		candidate := *better
 		if foip.Status.CandidateSince == nil {
 			patch := client.MergeFrom(foip.DeepCopy())
 			now := metav1.Now()
 			foip.Status.CandidateSince = &now
 			foip.Status.CandidateReason = "healthiest candidate selected"
+			if foip.Status.Phase == netcupv1.FailoverPhaseSelecting {
+				if err := netcupv1.AdvanceTransition(&foip.Status, netcupv1.FailoverPhaseStabilizing, now); err != nil {
+					return ctrl.Result{}, err
+				}
+				netcupv1.SetCondition(&foip.Status, netcupv1.ConditionStabilizing, metav1.ConditionTrue, "CandidateSelected", "Candidate is within the stabilization window", now)
+			}
 			if err := r.Status().Patch(ctx, &foip, patch); err != nil {
 				return ctrl.Result{}, err
 			}
@@ -177,11 +195,12 @@ func (r *FailoverIpReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		foip.Status.LocalOwners = nil
 		foip.Status.CandidateSince = nil
 		foip.Status.CandidateReason = ""
-		if foip.Status.Phase == netcupv1.FailoverPhaseSelecting {
+		if foip.Status.Phase == netcupv1.FailoverPhaseStabilizing {
 			now := metav1.Now()
-			if err := netcupv1.AdvanceTransition(&foip.Status, netcupv1.FailoverPhaseStabilizing, now); err != nil {
+			if err := netcupv1.AdvanceTransition(&foip.Status, netcupv1.FailoverPhasePreparingTarget, now); err != nil {
 				return ctrl.Result{}, err
 			}
+			netcupv1.SetCondition(&foip.Status, netcupv1.ConditionStabilizing, metav1.ConditionFalse, "WindowElapsed", "Candidate remained healthy through stabilization", now)
 		}
 		if err := r.Status().Patch(ctx, &foip, patch); err != nil {
 			return ctrl.Result{}, err
@@ -191,6 +210,9 @@ func (r *FailoverIpReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	}
 
 	if foip.Status.TargetNode == "" {
+		return ctrl.Result{RequeueAfter: r.requeueAfter}, nil
+	}
+	if foip.Status.Phase == netcupv1.FailoverPhaseSucceeded {
 		return ctrl.Result{RequeueAfter: r.requeueAfter}, nil
 	}
 
@@ -213,16 +235,44 @@ func (r *FailoverIpReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		log.Info("Waiting for target node to prepare failover IP", "targetNode", foip.Status.TargetNode)
 		return ctrl.Result{RequeueAfter: preparationPollInterval}, nil
 	}
-	if err := evaluateProbePhase(ctx, r.APIReader, foip, netcupv1.ProbePhasePreRoute); err != nil {
+	if foip.Status.Phase == netcupv1.FailoverPhasePreparingTarget {
 		patch := client.MergeFrom(foip.DeepCopy())
-		foip.Status.LastError = err.Error()
-		if patchErr := r.Status().Patch(ctx, &foip, patch); patchErr != nil {
-			return ctrl.Result{}, patchErr
+		now := metav1.Now()
+		if err := netcupv1.AdvanceTransition(&foip.Status, netcupv1.FailoverPhaseTargetPrepared, now); err != nil {
+			return ctrl.Result{}, err
+		}
+		netcupv1.SetCondition(&foip.Status, netcupv1.ConditionTargetPrepared, metav1.ConditionTrue, "NodeReportedOwnership", "Target node reported local /32 ownership", now)
+		if err := r.Status().Patch(ctx, &foip, patch); err != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{RequeueAfter: preparationPollInterval}, nil
+	}
+	if foip.Status.Phase == netcupv1.FailoverPhaseTargetPrepared || foip.Status.Phase == netcupv1.FailoverPhaseRoutingProvider {
+		if err := evaluateProbePhase(ctx, r.APIReader, foip, netcupv1.ProbePhasePreRoute); err != nil {
+			patch := client.MergeFrom(foip.DeepCopy())
+			foip.Status.LastError = err.Error()
+			if patchErr := r.Status().Patch(ctx, &foip, patch); patchErr != nil {
+				return ctrl.Result{}, patchErr
+			}
+			return ctrl.Result{RequeueAfter: preparationPollInterval}, nil
+		}
+	}
+	if foip.Status.Phase == netcupv1.FailoverPhaseTargetPrepared {
+		patch := client.MergeFrom(foip.DeepCopy())
+		now := metav1.Now()
+		if err := netcupv1.AdvanceTransition(&foip.Status, netcupv1.FailoverPhaseRoutingProvider, now); err != nil {
+			return ctrl.Result{}, err
+		}
+		if err := r.Status().Patch(ctx, &foip, patch); err != nil {
+			return ctrl.Result{}, err
 		}
 		return ctrl.Result{RequeueAfter: preparationPollInterval}, nil
 	}
 
 	if currentServerID != targetServerID {
+		if foip.Status.Phase != netcupv1.FailoverPhaseRoutingProvider {
+			return ctrl.Result{RequeueAfter: providerVerifyInterval}, nil
+		}
 		now := time.Now()
 		nextMutation, allowed := providerMutationGate(foip.Status, providerCooldown(foip.Spec), now)
 		if !allowed {
@@ -282,6 +332,33 @@ func (r *FailoverIpReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			return ctrl.Result{}, fmt.Errorf("provider route did not converge to server %d; retaining old and new local ownership", targetServerID)
 		}
 		observability.ObserveHandoffDuration(time.Since(handoffStart))
+		confirmedAt := metav1.Now()
+		foip.Status.LastConfirmedProviderMutationAt = &confirmedAt
+		foip.Status.ProviderObservedOwner = strconv.Itoa(targetServerID)
+	}
+	if foip.Status.Phase == netcupv1.FailoverPhaseRoutingProvider {
+		now := metav1.Now()
+		if err := netcupv1.AdvanceTransition(&foip.Status, netcupv1.FailoverPhaseVerifyingProvider, now); err != nil {
+			return ctrl.Result{}, err
+		}
+		if err := r.Status().Update(ctx, &foip); err != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{RequeueAfter: providerVerifyInterval}, nil
+	}
+	if foip.Status.Phase == netcupv1.FailoverPhaseVerifyingProvider {
+		if currentServerID != targetServerID {
+			return ctrl.Result{RequeueAfter: providerVerifyInterval}, nil
+		}
+		patch := client.MergeFrom(foip.DeepCopy())
+		now := metav1.Now()
+		if err := netcupv1.AdvanceTransition(&foip.Status, netcupv1.FailoverPhaseVerifyingTraffic, now); err != nil {
+			return ctrl.Result{}, err
+		}
+		if err := r.Status().Patch(ctx, &foip, patch); err != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{RequeueAfter: preparationPollInterval}, nil
 	}
 	if err := evaluateProbePhase(ctx, r.APIReader, foip, netcupv1.ProbePhasePostRoute); err != nil {
 		patch := client.MergeFrom(foip.DeepCopy())
@@ -293,24 +370,52 @@ func (r *FailoverIpReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		}
 		return ctrl.Result{RequeueAfter: preparationPollInterval}, nil
 	}
+	if foip.Status.Phase == netcupv1.FailoverPhaseVerifyingTraffic {
+		patch := client.MergeFrom(foip.DeepCopy())
+		now := metav1.Now()
+		if err := netcupv1.AdvanceTransition(&foip.Status, netcupv1.FailoverPhaseCommitting, now); err != nil {
+			return ctrl.Result{}, err
+		}
+		if err := r.Status().Patch(ctx, &foip, patch); err != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{RequeueAfter: preparationPollInterval}, nil
+	}
+	if foip.Status.Phase == netcupv1.FailoverPhaseCommitting {
+		patch := client.MergeFrom(foip.DeepCopy())
+		now := metav1.Now()
+		foip.Status.SourceNode = foip.Status.TargetNode
+		if err := netcupv1.AdvanceTransition(&foip.Status, netcupv1.FailoverPhaseCleaningStaleOwners, now); err != nil {
+			return ctrl.Result{}, err
+		}
+		if err := r.Status().Patch(ctx, &foip, patch); err != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{RequeueAfter: preparationPollInterval}, nil
+	}
+	if foip.Status.Phase == netcupv1.FailoverPhaseCleaningStaleOwners {
+		if len(foip.Status.LocalOwners) != 1 || !containsNode(foip.Status.LocalOwners, foip.Status.TargetNode) {
+			return ctrl.Result{RequeueAfter: preparationPollInterval}, nil
+		}
+		patch := client.MergeFrom(foip.DeepCopy())
+		now := metav1.Now()
+		if err := netcupv1.AdvanceTransition(&foip.Status, netcupv1.FailoverPhaseSucceeded, now); err != nil {
+			return ctrl.Result{}, err
+		}
+		if err := r.Status().Patch(ctx, &foip, patch); err != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{RequeueAfter: r.requeueAfter}, nil
+	}
 
 	patch := client.MergeFrom(foip.DeepCopy())
-	foip.Status.SourceNode = foip.Status.TargetNode
-	confirmedAt := metav1.Now()
-	foip.Status.LastConfirmedProviderMutationAt = &confirmedAt
-	foip.Status.ProviderObservedOwner = strconv.Itoa(targetServerID)
-	foip.Status.NextEligibleMutationAt = nil
-	foip.Status.Phase = netcupv1.FailoverPhaseSucceeded
-	foip.Status.LastSuccessfulPhase = netcupv1.FailoverPhaseCommitting
-	netcupv1.SetCondition(&foip.Status, netcupv1.ConditionReady, metav1.ConditionTrue, "Succeeded", "Failover IP ownership converged", confirmedAt)
-	netcupv1.SetCondition(&foip.Status, netcupv1.ConditionProviderConverged, metav1.ConditionTrue, "ProviderVerified", "Provider route converged", confirmedAt)
-	netcupv1.SetCondition(&foip.Status, netcupv1.ConditionOwnershipConverged, metav1.ConditionTrue, "SingleOwner", "Exactly one local owner is reported", confirmedAt)
+	previousPhase := foip.Status.Phase
+	foip.Status.Phase = netcupv1.FailoverPhaseBlocked
+	foip.Status.LastError = fmt.Sprintf("unexpected persisted phase %q", previousPhase)
 	if err := r.Status().Patch(ctx, &foip, patch); err != nil {
 		return ctrl.Result{}, err
 	}
-	log.Info("Failover handoff committed; stale owners may clean up", "assignedNode", foip.Status.SourceNode, "serverID", targetServerID)
-
-	return ctrl.Result{RequeueAfter: r.requeueAfter}, nil
+	return ctrl.Result{}, fmt.Errorf("unexpected persisted phase")
 }
 
 func containsNode(nodes []string, name string) bool {

@@ -138,7 +138,7 @@ func TestFailoverIpReconciler_SelectsNodeAndUpdatesStatus(t *testing.T) {
 		NamespacedName: types.NamespacedName{Name: resourceName, Namespace: namespace},
 	})
 	if err != nil {
-		t.Fatalf("reconcile: %v", err)
+		t.Fatalf("initialize: %v", err)
 	}
 	_, err = controllerReconciler.Reconcile(ctx, reconcile.Request{
 		NamespacedName: types.NamespacedName{Name: resourceName, Namespace: namespace},
@@ -266,11 +266,13 @@ func TestFailoverIpReconciler_CompletesMakeBeforeBreakHandoff(t *testing.T) {
 		Scheme:    k8sClient.Scheme(),
 	}
 
-	_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
-		NamespacedName: types.NamespacedName{Name: resourceName, Namespace: namespace},
-	})
-	if err != nil {
-		t.Fatalf("reconcile: %v", err)
+	for i := range 10 {
+		_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+			NamespacedName: types.NamespacedName{Name: resourceName, Namespace: namespace},
+		})
+		if err != nil {
+			t.Fatalf("reconcile %d: %v", i, err)
+		}
 	}
 	if !fakeClient.routeCalled {
 		t.Fatalf("route client should have been called for committed handoff")
