@@ -136,10 +136,10 @@ func TestEvaluateProbePhaseRejectsConflictingReferencedCompositions(t *testing.T
 	if err := netcupv1.AddToScheme(scheme); err != nil {
 		t.Fatal(err)
 	}
-	probe := func(name string, composition netcupv1.ProbeComposition) *netcupv1.FailoverProbe {
+	probeResource := func(name string, composition netcupv1.ProbeComposition) *netcupv1.FailoverProbe {
 		return &netcupv1.FailoverProbe{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"}, Spec: netcupv1.FailoverProbeSpec{Phase: netcupv1.ProbePhasePreRoute, Type: netcupv1.ProbeTypeKubernetes, Composition: composition, Kubernetes: &netcupv1.KubernetesReadinessTarget{APIVersion: "v1", Kind: "ConfigMap", Name: name}}}
 	}
-	reader := fake.NewClientBuilder().WithScheme(scheme).WithRuntimeObjects(probe("a", netcupv1.ProbeCompositionAny), probe("b", netcupv1.ProbeCompositionAll)).Build()
+	reader := fake.NewClientBuilder().WithScheme(scheme).WithRuntimeObjects(probeResource("a", netcupv1.ProbeCompositionAny), probeResource("b", netcupv1.ProbeCompositionAll)).Build()
 	foip := netcupv1.FailoverIp{ObjectMeta: metav1.ObjectMeta{Name: "foip", Namespace: "default"}, Spec: netcupv1.FailoverIpSpec{Probes: []corev1.LocalObjectReference{{Name: "b"}, {Name: "a"}}}}
 	if err := evaluateProbePhase(context.Background(), reader, foip, netcupv1.ProbePhasePreRoute); err == nil {
 		t.Fatal("conflicting probe compositions were accepted")

@@ -17,6 +17,7 @@ limitations under the License.
 package observability
 
 import (
+	"slices"
 	"sync"
 	"time"
 
@@ -134,7 +135,7 @@ func init() {
 
 // ObserveReconcile records the outcome and duration of a controller reconcile.
 func ObserveReconcile(controller, result string, duration time.Duration) {
-	controller, result = boundedLabel(controller, "other", "failoverip", "nodeinterface"), boundedLabel(result, "other", "success", "error", "requeue_after")
+	controller, result = boundedLabel(controller, "failoverip", "nodeinterface"), boundedLabel(result, "success", "error", "requeue_after")
 	reconcileTotal.WithLabelValues(controller, result).Inc()
 	reconcileDuration.WithLabelValues(controller, result).Observe(duration.Seconds())
 }
@@ -145,8 +146,8 @@ func ObserveProviderCall(provider, operation string, duration time.Duration, err
 	if err != nil {
 		result = "error"
 	}
-	provider = boundedLabel(provider, "other", "netcup", "kubernetes")
-	operation = boundedLabel(operation, "other", "find_failover_ip", "route_failover_ip", "verify_failover_ip", "get_secret")
+	provider = boundedLabel(provider, "netcup", "kubernetes")
+	operation = boundedLabel(operation, "find_failover_ip", "route_failover_ip", "verify_failover_ip", "get_secret")
 	providerTotal.WithLabelValues(provider, operation, result).Inc()
 	providerDuration.WithLabelValues(provider, operation).Observe(duration.Seconds())
 }
@@ -157,8 +158,8 @@ func ObserveInterfaceOperation(controller, operation string, duration time.Durat
 	if err != nil {
 		result = "error"
 	}
-	controller = boundedLabel(controller, "other", "nodeinterface")
-	operation = boundedLabel(operation, "other", "assign", "remove")
+	controller = boundedLabel(controller, "nodeinterface")
+	operation = boundedLabel(operation, "assign", "remove")
 	interfaceTotal.WithLabelValues(controller, operation, result).Inc()
 	interfaceDuration.WithLabelValues(controller, operation).Observe(duration.Seconds())
 }
@@ -184,7 +185,7 @@ func ObserveCooldownBlock() { cooldownBlocks.Inc() }
 
 func ObserveRecoveryAction(policy string) {
 	if policy != "" {
-		recoveryActions.WithLabelValues(boundedLabel(policy, "other", "HoldDualOwnership", "RollbackProvider", "CommitDegraded", "ManualIntervention")).Inc()
+		recoveryActions.WithLabelValues(boundedLabel(policy, "HoldDualOwnership", "RollbackProvider", "CommitDegraded", "ManualIntervention")).Inc()
 	}
 }
 
@@ -204,14 +205,12 @@ func ObservePhaseState(phase string) {
 }
 
 func boundedPhase(value string) string {
-	return boundedLabel(value, "other", "Idle", "Selecting", "Stabilizing", "PreparingTarget", "TargetPrepared", "RoutingProvider", "VerifyingProvider", "VerifyingTraffic", "Committing", "CleaningStaleOwners", "Succeeded", "Degraded", "Blocked")
+	return boundedLabel(value, "Idle", "Selecting", "Stabilizing", "PreparingTarget", "TargetPrepared", "RoutingProvider", "VerifyingProvider", "VerifyingTraffic", "Committing", "CleaningStaleOwners", "Succeeded", "Degraded", "Blocked")
 }
 
-func boundedLabel(value, fallback string, allowed ...string) string {
-	for _, candidate := range allowed {
-		if value == candidate {
-			return value
-		}
+func boundedLabel(value string, allowed ...string) string {
+	if slices.Contains(allowed, value) {
+		return value
 	}
-	return fallback
+	return "other"
 }
