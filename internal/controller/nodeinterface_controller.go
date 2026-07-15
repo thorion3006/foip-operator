@@ -104,9 +104,7 @@ func (r *NodeInterfaceReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		observability.ObserveInterfaceOperation("nodeinterface", "assign", time.Since(assignStart), nil)
 		log.Info("failover IP present on local interface", "ip", foip.Spec.IP, "mac", mac)
 
-		// Only the desired node reports preparation. This is the controller's
-		// gate before changing the provider route.
-		if r.NodeName == foip.Status.TargetNode && !containsNode(foip.Status.LocalOwners, r.NodeName) {
+		if !containsNode(foip.Status.LocalOwners, r.NodeName) {
 			patch := client.MergeFrom(foip.DeepCopy())
 			foip.Status.LocalOwners = append(foip.Status.LocalOwners, r.NodeName)
 			if err := r.Status().Patch(ctx, &foip, patch); err != nil {
@@ -125,9 +123,26 @@ func (r *NodeInterfaceReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	observability.ObserveInterfaceOperation("nodeinterface", "remove", time.Since(removeStart), nil)
 	if removed {
 		log.Info("removed stale failover IP from local interface", "ip", foip.Spec.IP, "mac", mac)
+		if containsNode(foip.Status.LocalOwners, r.NodeName) {
+			patch := client.MergeFrom(foip.DeepCopy())
+			foip.Status.LocalOwners = removeNode(foip.Status.LocalOwners, r.NodeName)
+			if err := r.Status().Patch(ctx, &foip, patch); err != nil {
+				return ctrl.Result{}, fmt.Errorf("reporting stale owner removal: %w", err)
+			}
+		}
 	}
 
 	return ctrl.Result{}, nil
+}
+
+func removeNode(nodes []string, name string) []string {
+	filtered := nodes[:0]
+	for _, node := range nodes {
+		if node != name {
+			filtered = append(filtered, node)
+		}
+	}
+	return filtered
 }
 
 func ensureIPAssigned(mac, ipStr string) error {
