@@ -274,6 +274,8 @@ func (r *FailoverIpReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		}
 		patch = client.MergeFrom(foip.DeepCopy())
 		foip.Status.SourceNode = foip.Status.TargetNode
+		foip.Status.CleanupAttempts = 0
+		foip.Status.NextCleanupAt = nil
 		foip.Status.TargetNode = better.Name
 		foip.Status.LocalOwners = nil
 		foip.Status.CandidateSince = nil
@@ -489,22 +491,39 @@ func (r *FailoverIpReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	}
 	if foip.Status.Phase == netcupv1.FailoverPhaseCleaningStaleOwners {
 		observability.ObserveOwnerCount(string(foip.Status.Phase), len(foip.Status.LocalOwners))
+		now := time.Now()
+		if foip.Status.NextCleanupAt != nil && now.Before(foip.Status.NextCleanupAt.Time) {
+			return ctrl.Result{RequeueAfter: time.Until(foip.Status.NextCleanupAt.Time)}, nil
+		}
 		if len(foip.Status.LocalOwners) != 1 || !containsNode(foip.Status.LocalOwners, foip.Status.TargetNode) {
 			patch := client.MergeFrom(foip.DeepCopy())
-			netcupv1.SetCondition(&foip.Status, netcupv1.ConditionOwnershipConverged, metav1.ConditionFalse, "OwnersPending", "Waiting for exactly one local target owner", metav1.Now())
+			foip.Status.CleanupAttempts++
+			if foip.Status.CleanupAttempts >= cleanupMaxAttempts(foip.Spec) {
+				degradedAt := metav1.Now()
+				foip.Status.Phase = netcupv1.FailoverPhaseDegraded
+				foip.Status.LastError = "stale local owners did not converge within the cleanup budget"
+				netcupv1.SetCondition(&foip.Status, netcupv1.ConditionDegraded, metav1.ConditionTrue, "CleanupTimeout", "Stale local owners did not converge within the cleanup budget", degradedAt)
+			} else {
+				next := metav1.NewTime(now.Add(cleanupRetryDelay(foip.Spec, foip.Status.CleanupAttempts)))
+				foip.Status.NextCleanupAt = &next
+				netcupv1.SetCondition(&foip.Status, netcupv1.ConditionOwnershipConverged, metav1.ConditionFalse, "OwnersPending", "Waiting for exactly one local target owner", metav1.Now())
+			}
 			if err := r.Status().Patch(ctx, &foip, patch); err != nil {
 				return ctrl.Result{}, err
+			}
+			if foip.Status.Phase == netcupv1.FailoverPhaseDegraded {
+				return ctrl.Result{RequeueAfter: r.requeueAfter}, nil
 			}
 			return ctrl.Result{RequeueAfter: preparationPollInterval}, nil
 		}
 		patch := client.MergeFrom(foip.DeepCopy())
-		now := metav1.Now()
-		if err := netcupv1.AdvanceTransition(&foip.Status, netcupv1.FailoverPhaseSucceeded, now); err != nil {
+		phaseNow := metav1.Now()
+		if err := netcupv1.AdvanceTransition(&foip.Status, netcupv1.FailoverPhaseSucceeded, phaseNow); err != nil {
 			return ctrl.Result{}, err
 		}
 		r.emitEvent(&foip, corev1.EventTypeNormal, "HandoffSucceeded", "Failover transition converged to one local owner")
-		netcupv1.SetCondition(&foip.Status, netcupv1.ConditionOwnershipConverged, metav1.ConditionTrue, "SingleOwner", "Exactly one local target owner is confirmed", now)
-		netcupv1.SetCondition(&foip.Status, netcupv1.ConditionReady, metav1.ConditionTrue, "Succeeded", "Failover transition completed successfully", now)
+		netcupv1.SetCondition(&foip.Status, netcupv1.ConditionOwnershipConverged, metav1.ConditionTrue, "SingleOwner", "Exactly one local target owner is confirmed", phaseNow)
+		netcupv1.SetCondition(&foip.Status, netcupv1.ConditionReady, metav1.ConditionTrue, "Succeeded", "Failover transition completed successfully", phaseNow)
 		if err := r.Status().Patch(ctx, &foip, patch); err != nil {
 			return ctrl.Result{}, err
 		}

@@ -52,6 +52,16 @@ spec:
           spec:
             description: FailoverIpSpec defines the desired state of FailoverIp.
             properties:
+              cleanupMaxAttempts:
+                default: 15
+                format: int32
+                minimum: 1
+                type: integer
+              cleanupRetrySeconds:
+                default: 2
+                format: int32
+                minimum: 1
+                type: integer
               failureThreshold:
                 default: 3
                 description: |-
@@ -165,6 +175,9 @@ spec:
               candidateSince:
                 format: date-time
                 type: string
+              cleanupAttempts:
+                format: int32
+                type: integer
               conditions:
                 items:
                   description: Condition contains details for one aspect of the current
@@ -241,6 +254,9 @@ spec:
                   type: string
                 type: array
               manualReconcileToken:
+                type: string
+              nextCleanupAt:
+                format: date-time
                 type: string
               nextEligibleMutationAt:
                 format: date-time

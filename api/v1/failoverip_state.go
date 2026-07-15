@@ -155,7 +155,8 @@ func validateNetworkProbeSpec(spec FailoverProbeSpec) error {
 
 func ValidateFailoverIpSpec(spec FailoverIpSpec) error {
 	if spec.ProviderCooldownSeconds < 0 || spec.RetryBaseSeconds < 0 || spec.RetryMaxSeconds < 0 ||
-		spec.FailureThreshold < 0 || spec.RecoveryThreshold < 0 || spec.StabilizationSeconds < 0 || spec.MinHealthySeconds < 0 {
+		spec.FailureThreshold < 0 || spec.RecoveryThreshold < 0 || spec.CleanupMaxAttempts < 0 || spec.CleanupRetrySeconds < 0 ||
+		spec.StabilizationSeconds < 0 || spec.MinHealthySeconds < 0 {
 		return fmt.Errorf("failover timing and threshold values cannot be negative")
 	}
 	if spec.RetryBaseSeconds > 0 && spec.RetryMaxSeconds > 0 && spec.RetryBaseSeconds > spec.RetryMaxSeconds {

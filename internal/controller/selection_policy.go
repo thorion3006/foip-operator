@@ -36,6 +36,27 @@ func recoveryThreshold(spec netcupv1.FailoverIpSpec) int32 {
 	return spec.RecoveryThreshold
 }
 
+func cleanupMaxAttempts(spec netcupv1.FailoverIpSpec) int32 {
+	if spec.CleanupMaxAttempts <= 0 {
+		return 15
+	}
+	return spec.CleanupMaxAttempts
+}
+
+func cleanupRetryDelay(spec netcupv1.FailoverIpSpec, attempts int32) time.Duration {
+	delay := time.Duration(spec.CleanupRetrySeconds) * time.Second
+	if delay <= 0 {
+		delay = 2 * time.Second
+	}
+	for i := int32(1); i < attempts && delay < time.Minute; i++ {
+		delay *= 2
+		if delay > time.Minute {
+			delay = time.Minute
+		}
+	}
+	return delay
+}
+
 // candidateReadyForHandoff makes the persisted candidate timer the gate for a
 // move; callers must retain the current owner while this returns false.
 func candidateReadyForHandoff(spec netcupv1.FailoverIpSpec, status netcupv1.FailoverIpStatus, candidate corev1.Node, now time.Time) bool {

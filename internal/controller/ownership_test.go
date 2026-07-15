@@ -81,3 +81,16 @@ func TestSupersededTransitionFencing(t *testing.T) {
 		t.Fatal("superseded transition skipped stabilization and ownership fencing")
 	}
 }
+
+func TestCleanupRetryBackoffIsBoundedAndConfigurable(t *testing.T) {
+	spec := netcupv1.FailoverIpSpec{CleanupRetrySeconds: 3}
+	if got := cleanupRetryDelay(spec, 1); got != 3*time.Second {
+		t.Fatalf("first cleanup delay = %s, want 3s", got)
+	}
+	if got := cleanupRetryDelay(spec, 20); got > time.Minute {
+		t.Fatalf("cleanup delay = %s, exceeded one minute", got)
+	}
+	if got := cleanupMaxAttempts(netcupv1.FailoverIpSpec{}); got != 15 {
+		t.Fatalf("default cleanup attempts = %d, want 15", got)
+	}
+}

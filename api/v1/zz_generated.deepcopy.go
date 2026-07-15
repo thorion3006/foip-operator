@@ -137,6 +137,10 @@ func (in *FailoverIpStatus) DeepCopyInto(out *FailoverIpStatus) {
 		in, out := &in.CandidateSince, &out.CandidateSince
 		*out = (*in).DeepCopy()
 	}
+	if in.NextCleanupAt != nil {
+		in, out := &in.NextCleanupAt, &out.NextCleanupAt
+		*out = (*in).DeepCopy()
+	}
 	if in.Conditions != nil {
 		in, out := &in.Conditions, &out.Conditions
 		*out = make([]metav1.Condition, len(*in))

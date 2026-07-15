@@ -90,6 +90,12 @@ type FailoverIpSpec struct {
 	// +kubebuilder:validation:Minimum=1
 	// +kubebuilder:default=2
 	RecoveryThreshold int32 `json:"recoveryThreshold,omitempty"`
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:default=15
+	CleanupMaxAttempts int32 `json:"cleanupMaxAttempts,omitempty"`
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:default=2
+	CleanupRetrySeconds int32 `json:"cleanupRetrySeconds,omitempty"`
 	// +kubebuilder:validation:Minimum=0
 	// +kubebuilder:default=30
 	StabilizationSeconds int32 `json:"stabilizationSeconds,omitempty"`
@@ -267,6 +273,8 @@ type FailoverIpStatus struct {
 	CandidateRecoveryCount          int32          `json:"candidateRecoveryCount,omitempty"`
 	RecoveryAction                  RecoveryPolicy `json:"recoveryAction,omitempty"`
 	RecoveryAttempts                int32          `json:"recoveryAttempts,omitempty"`
+	CleanupAttempts                 int32          `json:"cleanupAttempts,omitempty"`
+	NextCleanupAt                   *metav1.Time   `json:"nextCleanupAt,omitempty"`
 	ManualReconcileToken            string         `json:"manualReconcileToken,omitempty"`
 
 	// +kubebuilder:validation:Optional
