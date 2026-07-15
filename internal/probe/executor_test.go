@@ -32,7 +32,7 @@ func TestTCPProbe(t *testing.T) {
 		}
 		t.Fatal(err)
 	}
-	defer listener.Close()
+	defer func() { _ = listener.Close() }()
 	go func() {
 		conn, acceptErr := listener.Accept()
 		if acceptErr == nil {

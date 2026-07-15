@@ -20,7 +20,7 @@ func providerMutationGate(status netcupv1.FailoverIpStatus, cooldown time.Durati
 	if status.LastAttemptedProviderMutationAt == nil {
 		return time.Time{}, true
 	}
-	next := status.LastAttemptedProviderMutationAt.Time.Add(cooldown)
+	next := status.LastAttemptedProviderMutationAt.Add(cooldown)
 	return next, !now.Before(next)
 }
 

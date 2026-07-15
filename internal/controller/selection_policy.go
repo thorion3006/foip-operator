@@ -28,7 +28,7 @@ func candidateReadyForHandoff(spec netcupv1.FailoverIpSpec, status netcupv1.Fail
 	if !nodeAcceptable(candidate) || status.CandidateSince == nil {
 		return false
 	}
-	return !now.Before(status.CandidateSince.Time.Add(stabilizationWindow(spec) + minHealthyWindow(spec)))
+	return !now.Before(status.CandidateSince.Add(stabilizationWindow(spec) + minHealthyWindow(spec)))
 }
 
 func nodeAcceptable(node corev1.Node) bool {

@@ -13,10 +13,10 @@ import (
 )
 
 func TestExecuteKubernetes(t *testing.T) {
-	object := &unstructured.Unstructured{Object: map[string]interface{}{
+	object := &unstructured.Unstructured{Object: map[string]any{
 		"apiVersion": "apps/v1", "kind": "Deployment",
-		"metadata": map[string]interface{}{"name": "web", "namespace": "default"},
-		"status":   map[string]interface{}{"readyReplicas": int64(2)},
+		"metadata": map[string]any{"name": "web", "namespace": "default"},
+		"status":   map[string]any{"readyReplicas": int64(2)},
 	}}
 	object.SetGroupVersionKind(schemaFrom("apps/v1", "Deployment"))
 	reader := fake.NewClientBuilder().WithScheme(runtime.NewScheme()).WithRuntimeObjects(object).Build()

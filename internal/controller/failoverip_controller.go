@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strconv"
 	"time"
 
@@ -74,7 +75,7 @@ var newFailoverIPClient = func(userID int, refreshToken string) failoverIPClient
 // +kubebuilder:rbac:groups=foip.noshoes.xyz,resources=failoverips/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get
-func (r *FailoverIpReconciler) Reconcile(ctx context.Context, req ctrl.Request) (res ctrl.Result, err error) {
+func (r *FailoverIpReconciler) Reconcile(ctx context.Context, req ctrl.Request) (res ctrl.Result, err error) { //nolint:gocyclo // this method coordinates persisted safety gates
 	start := time.Now()
 	ctx, span := observability.StartSpan(ctx, "foip-operator.failoverip", "Reconcile",
 		attribute.String("k8s.namespace", req.Namespace),
@@ -166,10 +167,8 @@ func (r *FailoverIpReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			return ctrl.Result{RequeueAfter: stabilizationWindow(foip.Spec)}, nil
 		}
 		if !candidateReadyForHandoff(foip.Spec, foip.Status, candidate, time.Now()) {
-			remaining := time.Until(foip.Status.CandidateSince.Time.Add(stabilizationWindow(foip.Spec) + minHealthyWindow(foip.Spec)))
-			if remaining < time.Second {
-				remaining = time.Second
-			}
+			remaining := time.Until(foip.Status.CandidateSince.Add(stabilizationWindow(foip.Spec) + minHealthyWindow(foip.Spec)))
+			remaining = max(remaining, time.Second)
 			return ctrl.Result{RequeueAfter: remaining}, nil
 		}
 		patch := client.MergeFrom(foip.DeepCopy())
@@ -315,12 +314,7 @@ func (r *FailoverIpReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 }
 
 func containsNode(nodes []string, name string) bool {
-	for _, node := range nodes {
-		if node == name {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(nodes, name)
 }
 
 type nodeChangePredicate struct {

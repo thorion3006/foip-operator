@@ -24,7 +24,7 @@ func TestProviderMutationGatePersistsCooldown(t *testing.T) {
 
 func TestRetryDelayIsBounded(t *testing.T) {
 	spec := netcupv1.FailoverIpSpec{RetryBaseSeconds: 2, RetryMaxSeconds: 8}
-	for i := int32(0); i < 8; i++ {
+	for i := range int32(8) {
 		delay := retryDelay(spec, i)
 		if delay < 0 || delay > 8*time.Second {
 			t.Fatalf("retry delay %s out of bounds", delay)
