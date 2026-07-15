@@ -19,12 +19,15 @@ package controller
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -395,5 +398,100 @@ func TestLeaderChange_FencesOutOfBandProviderOwnerFromPersistedStatus(t *testing
 	}
 	if persisted.Status.ProviderObservedOwner != "101" {
 		t.Fatalf("fenced observed owner = %q, want persisted owner 101", persisted.Status.ProviderObservedOwner)
+	}
+}
+
+func TestRestartResume_ReconcilesEveryPersistedPhase(t *testing.T) {
+	ctx := context.Background()
+	phases := []netcupv1.FailoverPhase{
+		netcupv1.FailoverPhaseIdle,
+		netcupv1.FailoverPhaseSelecting,
+		netcupv1.FailoverPhaseStabilizing,
+		netcupv1.FailoverPhasePreparingTarget,
+		netcupv1.FailoverPhaseTargetPrepared,
+		netcupv1.FailoverPhaseRoutingProvider,
+		netcupv1.FailoverPhaseVerifyingProvider,
+		netcupv1.FailoverPhaseVerifyingTraffic,
+		netcupv1.FailoverPhaseCommitting,
+		netcupv1.FailoverPhaseCleaningStaleOwners,
+		netcupv1.FailoverPhaseSucceeded,
+		netcupv1.FailoverPhaseDegraded,
+		netcupv1.FailoverPhaseBlocked,
+	}
+
+	for _, phase := range phases {
+		t.Run(string(phase), func(t *testing.T) {
+			name := fmt.Sprintf("phase-%s", strings.ToLower(string(phase)))
+			secretName := name + "-secret"
+			nodeName := name + "-target"
+			resource := &netcupv1.FailoverIp{
+				ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
+				Spec:       netcupv1.FailoverIpSpec{IP: "192.0.2.20", SecretName: secretName},
+			}
+			if err := k8sClient.Create(ctx, resource); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = k8sClient.Delete(ctx, resource) })
+			secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: secretName, Namespace: "default"}, Data: map[string][]byte{"userId": []byte("42"), "refreshToken": []byte("token")}}
+			if err := k8sClient.Create(ctx, secret); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = k8sClient.Delete(ctx, secret) })
+			node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: nodeName, Annotations: map[string]string{netcupv1.ServerIDAnnotation: "202"}}}
+			if err := k8sClient.Create(ctx, node); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = k8sClient.Delete(ctx, node) })
+
+			providerOwner := 101
+			routeTarget := 0
+			if phase == netcupv1.FailoverPhaseTargetPrepared || phase == netcupv1.FailoverPhaseRoutingProvider {
+				providerOwner = 101
+				routeTarget = 202
+			} else if phase == netcupv1.FailoverPhaseVerifyingProvider || phase == netcupv1.FailoverPhaseVerifyingTraffic || phase == netcupv1.FailoverPhaseCommitting || phase == netcupv1.FailoverPhaseCleaningStaleOwners || phase == netcupv1.FailoverPhaseSucceeded {
+				providerOwner = 202
+			}
+			provider := &countingFailoverIPClient{fakeFailoverIPClient: fakeFailoverIPClient{findFOIPID: 17, serverID: providerOwner, routeTarget: routeTarget}}
+			previousFactory := newFailoverIPClient
+			newFailoverIPClient = func(int, string) failoverIPClient { return provider }
+			t.Cleanup(func() { newFailoverIPClient = previousFactory })
+
+			var persisted netcupv1.FailoverIp
+			if err := k8sClient.Get(ctx, client.ObjectKey{Name: name, Namespace: "default"}, &persisted); err != nil {
+				t.Fatal(err)
+			}
+			persisted.Status = netcupv1.FailoverIpStatus{
+				TransitionID: "restart-" + name,
+				Phase:        phase,
+				SourceNode:   "source-" + name,
+				TargetNode:   nodeName,
+				LocalOwners:  []string{nodeName},
+			}
+			if phase == netcupv1.FailoverPhaseSucceeded || phase == netcupv1.FailoverPhaseCleaningStaleOwners || phase == netcupv1.FailoverPhaseCommitting || phase == netcupv1.FailoverPhaseIdle {
+				persisted.Status.SourceNode = nodeName
+			}
+			if err := k8sClient.Status().Update(ctx, &persisted); err != nil {
+				t.Fatal(err)
+			}
+
+			request := reconcile.Request{NamespacedName: client.ObjectKey{Name: name, Namespace: "default"}}
+			first := &FailoverIpReconciler{Client: k8sClient, APIReader: k8sClient, Scheme: k8sClient.Scheme()}
+			if _, err := first.Reconcile(ctx, request); err != nil {
+				t.Fatalf("first reconcile: %v", err)
+			}
+			second := &FailoverIpReconciler{Client: k8sClient, APIReader: k8sClient, Scheme: k8sClient.Scheme()}
+			if _, err := second.Reconcile(ctx, request); err != nil {
+				t.Fatalf("reconcile after restart: %v", err)
+			}
+			if provider.routeCalls > 1 {
+				t.Fatalf("provider mutations after restart = %d, want at most one", provider.routeCalls)
+			}
+			if err := k8sClient.Get(ctx, request.NamespacedName, &persisted); err != nil {
+				t.Fatal(err)
+			}
+			if err := netcupv1.ValidateStatus(persisted.Status); err != nil {
+				t.Fatalf("persisted status after restart: %v", err)
+			}
+		})
 	}
 }
