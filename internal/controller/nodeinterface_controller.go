@@ -82,6 +82,8 @@ func (r *NodeInterfaceReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	if err := r.Get(ctx, req.NamespacedName, &foip); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
+	span.SetAttributes(attribute.String("foip.transition_id", foip.Status.TransitionID), attribute.String("foip.phase", string(foip.Status.Phase)))
+	log = log.WithValues("transitionID", foip.Status.TransitionID, "phase", foip.Status.Phase, "targetNode", foip.Status.TargetNode)
 
 	var node corev1.Node
 	if err := r.Get(ctx, types.NamespacedName{Name: r.NodeName}, &node); err != nil {

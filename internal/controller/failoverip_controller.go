@@ -105,6 +105,7 @@ func (r *FailoverIpReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	}
 	currentPhase = string(foip.Status.Phase)
 	span.SetAttributes(attribute.String("foip.transition_id", foip.Status.TransitionID), attribute.String("foip.phase", currentPhase))
+	log = log.WithValues("transitionID", foip.Status.TransitionID, "phase", foip.Status.Phase, "sourceNode", foip.Status.SourceNode, "targetNode", foip.Status.TargetNode)
 	if foip.Status.TransitionID == "" {
 		patch := client.MergeFrom(foip.DeepCopy())
 		now := metav1.Now()
