@@ -8,6 +8,7 @@ func TestValidateProbeSpec(t *testing.T) {
 		t.Fatalf("valid probe rejected: %v", err)
 	}
 	tests := []FailoverProbeSpec{
+		{Phase: ProbePhase("Unknown"), Type: ProbeTypeTCP, Target: ProbeTarget{Address: "node", Port: 443}},
 		{Phase: ProbePhasePreRoute, Type: ProbeTypeTCP, Target: ProbeTarget{Address: "node", Port: 0}},
 		{Phase: ProbePhasePreRoute, Type: ProbeTypeTCP, Target: ProbeTarget{Address: "node", Port: 443}, InsecureSkipVerify: true},
 		{Phase: ProbePhasePreRoute, Type: ProbeTypeKubernetes},

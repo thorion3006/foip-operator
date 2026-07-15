@@ -104,6 +104,9 @@ func ValidateProbeSpec(spec FailoverProbeSpec) error {
 	if spec.Phase == "" || spec.Type == "" {
 		return fmt.Errorf("probe phase and type are required")
 	}
+	if spec.Phase != ProbePhasePreRoute && spec.Phase != ProbePhasePostRoute && spec.Phase != ProbePhaseContinuous {
+		return fmt.Errorf("unsupported probe phase %q", spec.Phase)
+	}
 	if spec.Composition == ProbeCompositionQuorum && spec.Quorum < 1 {
 		return fmt.Errorf("quorum must be at least one")
 	}
