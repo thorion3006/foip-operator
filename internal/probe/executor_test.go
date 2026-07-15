@@ -47,7 +47,7 @@ func TestTCPProbe(t *testing.T) {
 	host, port, _ := net.SplitHostPort(listener.Addr().String())
 	var p int
 	_, _ = fmt.Sscan(port, &p)
-	result := Execute(context.Background(), netcupv1.FailoverProbeSpec{Phase: netcupv1.ProbePhasePreRoute, Type: netcupv1.ProbeTypeTCP, Target: netcupv1.ProbeTarget{Address: host, Port: int32(p)}})
+	result := Execute(context.Background(), netcupv1.FailoverProbeSpec{Phase: netcupv1.ProbePhasePreRoute, Type: netcupv1.ProbeTypeTCP, Target: netcupv1.ProbeTarget{Address: host, Port: int32(p)}, NetworkPolicy: netcupv1.ProbeNetworkPolicy{AllowPrivateNetworks: true}})
 	if !result.Success {
 		t.Fatalf("TCP probe failed: %s", result.Reason)
 	}
@@ -198,8 +198,8 @@ func TestHTTPProbeBlocksRedirectToUnallowedPrivateNetwork(t *testing.T) {
 		redirectHits++
 		w.WriteHeader(http.StatusOK)
 	}))
-	entryServer := newLoopbackServer(t, "127.0.0.1", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		http.Redirect(w, nil, privateServer.URL, http.StatusFound)
+	entryServer := newLoopbackServer(t, "127.0.0.1", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, privateServer.URL, http.StatusFound)
 	}))
 	defer entryServer.Close()
 
