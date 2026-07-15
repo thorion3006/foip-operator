@@ -40,7 +40,7 @@ func TestExecuteKubernetesReadinessFailures(t *testing.T) {
 		target *netcupv1.KubernetesReadinessTarget
 		reason string
 	}{
-		{name: "unsupported kind", target: &netcupv1.KubernetesReadinessTarget{APIVersion: "apps/v1", Kind: "ReplicaSet", Name: "web"}, reason: "unsupported Kubernetes readiness target"},
+		{name: "missing arbitrary kind", target: &netcupv1.KubernetesReadinessTarget{APIVersion: "apps/v1", Kind: "ReplicaSet", Name: "web"}, reason: "Kubernetes object is not readable"},
 		{name: "invalid api version", target: &netcupv1.KubernetesReadinessTarget{APIVersion: "apps/v1/extra", Kind: "Deployment", Name: "web"}, reason: "invalid Kubernetes apiVersion"},
 		{name: "missing object", target: &netcupv1.KubernetesReadinessTarget{APIVersion: "apps/v1", Kind: "Deployment", Name: "missing", Namespace: "default"}, reason: "Kubernetes object is not readable"},
 		{name: "wrong namespace", target: &netcupv1.KubernetesReadinessTarget{APIVersion: "apps/v1", Kind: "Deployment", Name: "web", Namespace: "other"}, reason: "Kubernetes object is not readable"},

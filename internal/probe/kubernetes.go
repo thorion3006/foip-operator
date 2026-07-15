@@ -12,15 +12,12 @@ import (
 	netcupv1 "github.com/thorion3006/foip-operator/api/v1"
 )
 
-var supportedKinds = map[string]bool{
-	"Pod": true, "Deployment": true, "DaemonSet": true, "StatefulSet": true,
-	"Service": true, "EndpointSlice": true,
-}
-
-// ExecuteKubernetes checks a supported object without polling faster than the
-// caller's reconciliation interval. It reads only the referenced namespace.
+// ExecuteKubernetes checks a namespaced object without polling faster than the
+// caller's reconciliation interval. The API server/RBAC boundary determines
+// which arbitrary kind can be read; the probe executor does not hard-code an
+// ingress or workload product allow-list.
 func ExecuteKubernetes(ctx context.Context, reader client.Reader, target *netcupv1.KubernetesReadinessTarget) Result {
-	if target == nil || !supportedKinds[target.Kind] || target.Name == "" {
+	if target == nil || strings.TrimSpace(target.Kind) == "" || target.Name == "" {
 		return Result{Reason: "unsupported Kubernetes readiness target"}
 	}
 	gv, err := schema.ParseGroupVersion(target.APIVersion)
