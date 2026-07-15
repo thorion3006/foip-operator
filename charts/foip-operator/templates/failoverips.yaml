@@ -21,6 +21,12 @@ spec:
   {{- with .recoveryPolicy }}
   recoveryPolicy: {{ . }}
   {{- end }}
+  {{- with .probeComposition }}
+  probeComposition: {{ . }}
+  {{- end }}
+  {{- with .probeQuorum }}
+  probeQuorum: {{ . }}
+  {{- end }}
   {{- with .probes }}
   probes:
     {{- toYaml . | nindent 4 }}

@@ -15,6 +15,7 @@ fullnameOverride: ""
 #   providerCooldownSeconds: 60
 #   stabilizationSeconds: 30
 #   recoveryPolicy: HoldDualOwnership
+#   probeComposition: All
 #   probes: []
 failoverIps: []
 
