@@ -21,6 +21,8 @@ package e2e
 import (
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -100,6 +102,9 @@ spec:
         image: %s
         imagePullPolicy: IfNotPresent
         command: ["/fake-provider"]
+        env:
+        - name: FAKE_PROVIDER_ROUTE_DELAY_SECONDS
+          value: "5"
         securityContext:
           allowPrivilegeEscalation: false
           capabilities:
@@ -366,11 +371,32 @@ spec:
 			Expect(err).NotTo(HaveOccurred())
 
 			By("waiting for the handoff to converge")
+			By("waiting until the provider mutation is durably in flight")
+			Eventually(func(g Gomega) {
+				phase, attempted := failoverStatusFields("e2e-handoff")
+				g.Expect(phase).To(Equal("RoutingProvider"))
+				g.Expect(attempted).NotTo(BeEmpty())
+			}, time.Minute, time.Second).Should(Succeed())
+
+			By("restarting the controller during provider routing")
+			cmd = exec.Command("kubectl", "delete", "pod", "-l", "control-plane=controller-manager", "-n", namespace, "--wait")
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			cmd = exec.Command("kubectl", "rollout", "status", "deployment/foip-operator-controller-manager", "--namespace", namespace, "--timeout=3m")
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("waiting for the restarted handoff to converge")
 			Eventually(func(g Gomega) {
 				output, getErr := utils.Run(exec.Command("kubectl", "get", "failoverip", "e2e-handoff", "-n", namespace, "-o", "jsonpath={.status.phase}"))
 				g.Expect(getErr).NotTo(HaveOccurred())
 				g.Expect(strings.TrimSpace(output)).To(Equal("Succeeded"))
 			}, 3*time.Minute, time.Second).Should(Succeed())
+
+			By("verifying that the provider mutation was not duplicated")
+			state := fakeProviderState()
+			Expect(state.RouteCount).To(Equal(1))
+			Expect(state.Owner).To(Equal(12345))
 		})
 
 		// +kubebuilder:scaffold:e2e-webhooks-checks
@@ -397,6 +423,37 @@ func applyManifest(manifest string) {
 	Expect(file.Close()).To(Succeed())
 	_, err = utils.Run(exec.Command("kubectl", "apply", "-f", name))
 	Expect(err).NotTo(HaveOccurred())
+}
+
+type fakeProviderStateResponse struct {
+	Owner      int `json:"owner"`
+	RouteCount int `json:"routeCount"`
+}
+
+func fakeProviderState() fakeProviderStateResponse {
+	portForward := exec.Command("kubectl", "port-forward", "service/fake-provider", "18080:8080", "-n", namespace)
+	portForward.Stdout = io.Discard
+	portForward.Stderr = io.Discard
+	Expect(portForward.Start()).To(Succeed())
+	defer func() { _ = portForward.Process.Kill() }()
+
+	var state fakeProviderStateResponse
+	Eventually(func(g Gomega) {
+		response, err := http.Get("http://127.0.0.1:18080/state") // #nosec G107 -- fixed local E2E endpoint
+		g.Expect(err).NotTo(HaveOccurred())
+		defer func() { _ = response.Body.Close() }()
+		g.Expect(response.StatusCode).To(Equal(http.StatusOK))
+		g.Expect(json.NewDecoder(response.Body).Decode(&state)).To(Succeed())
+	}, time.Minute, time.Second).Should(Succeed())
+	return state
+}
+
+func failoverStatusFields(name string) (phase, attempted string) {
+	phaseOutput, phaseErr := utils.Run(exec.Command("kubectl", "get", "failoverip", name, "-n", namespace, "-o", "jsonpath={.status.phase}"))
+	Expect(phaseErr).NotTo(HaveOccurred())
+	attemptedOutput, attemptedErr := utils.Run(exec.Command("kubectl", "get", "failoverip", name, "-n", namespace, "-o", "jsonpath={.status.lastAttemptedProviderMutationAt}"))
+	Expect(attemptedErr).NotTo(HaveOccurred())
+	return strings.TrimSpace(phaseOutput), strings.TrimSpace(attemptedOutput)
 }
 
 // serviceAccountToken returns a token for the specified service account in the given namespace.

@@ -20,6 +20,7 @@ type provider struct {
 	mu          sync.Mutex
 	owner       int
 	nextTask    int
+	routeCount  int
 	tasks       map[string]time.Time
 	routeDelay  time.Duration
 	routeErrors int
@@ -31,6 +32,7 @@ func main() {
 	p.routeErrors = envInt("FAKE_PROVIDER_ROUTE_ERRORS", 0)
 	mux := http.NewServeMux()
 	mux.HandleFunc("/token", p.token)
+	mux.HandleFunc("/state", p.state)
 	mux.HandleFunc("/api/v1/users/", p.api)
 	mux.HandleFunc("/api/v1/tasks/", p.task)
 	address := ":" + envString("PORT", "8080")
@@ -42,6 +44,13 @@ func main() {
 
 func (p *provider) token(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"access_token": "fake-token", "expires_in": 3600})
+}
+
+func (p *provider) state(w http.ResponseWriter, _ *http.Request) {
+	p.mu.Lock()
+	state := map[string]int{"owner": p.owner, "routeCount": p.routeCount}
+	p.mu.Unlock()
+	writeJSON(w, http.StatusOK, state)
 }
 
 func (p *provider) api(w http.ResponseWriter, request *http.Request) {
@@ -76,6 +85,7 @@ func (p *provider) api(w http.ResponseWriter, request *http.Request) {
 		return
 	}
 	p.nextTask++
+	p.routeCount++
 	taskID := fmt.Sprintf("task-%d", p.nextTask)
 	p.tasks[taskID] = time.Now().Add(p.routeDelay)
 	p.owner = body.ServerID
