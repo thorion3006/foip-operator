@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -94,16 +95,34 @@ func httpProbe(ctx context.Context, spec netcupv1.FailoverProbeSpec, credential 
 	if spec.Type == netcupv1.ProbeTypeHTTPS {
 		scheme = "https"
 	}
+	host := spec.Target.Address
 	path := spec.Target.Path
+	port := spec.Target.Port
+	if parsed, err := url.Parse(spec.Target.Address); err == nil && parsed.Scheme != "" {
+		if parsed.Scheme != scheme || parsed.Hostname() == "" || parsed.User != nil {
+			return Result{Reason: "invalid request"}
+		}
+		host = parsed.Hostname()
+		if port == 0 && parsed.Port() != "" {
+			parsedPort, parseErr := strconv.Atoi(parsed.Port())
+			if parseErr != nil {
+				return Result{Reason: "invalid request"}
+			}
+			port = int32(parsedPort)
+		}
+		if path == "" {
+			path = parsed.EscapedPath()
+		}
+	}
 	if path == "" {
 		path = "/"
 	}
-	url := scheme + "://" + net.JoinHostPort(spec.Target.Address, strconv.Itoa(int(spec.Target.Port))) + path
+	requestURL := scheme + "://" + net.JoinHostPort(host, strconv.Itoa(int(port))) + path
 	method := spec.Method
 	if method == "" {
 		method = http.MethodGet
 	}
-	req, err := http.NewRequestWithContext(ctx, method, url, nil)
+	req, err := http.NewRequestWithContext(ctx, method, requestURL, nil)
 	if err != nil {
 		return Result{Reason: "invalid request"}
 	}

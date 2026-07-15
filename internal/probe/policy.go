@@ -29,9 +29,16 @@ func validateTarget(ctx context.Context, target netcupv1.ProbeTarget, policy net
 	if parsed, err := url.Parse(target.Address); err == nil && parsed.User != nil {
 		return fmt.Errorf("probe target userinfo is not allowed")
 	}
-	ips, err := net.DefaultResolver.LookupIP(ctx, "ip", target.Address)
+	lookupAddress := target.Address
+	if parsed, err := url.Parse(target.Address); err == nil && parsed.Scheme != "" {
+		if parsed.Hostname() == "" {
+			return fmt.Errorf("probe target URL has no host")
+		}
+		lookupAddress = parsed.Hostname()
+	}
+	ips, err := net.DefaultResolver.LookupIP(ctx, "ip", lookupAddress)
 	if err != nil {
-		if parsed := net.ParseIP(target.Address); parsed != nil {
+		if parsed := net.ParseIP(lookupAddress); parsed != nil {
 			ips = []net.IP{parsed}
 		} else {
 			return fmt.Errorf("resolving probe target: %w", err)

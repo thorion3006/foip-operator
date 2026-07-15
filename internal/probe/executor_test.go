@@ -98,6 +98,30 @@ func TestHTTPProbeMatchesMethodStatusBodyAndHeaders(t *testing.T) {
 	}
 }
 
+func TestHTTPProbeAcceptsExplicitURLAddress(t *testing.T) {
+	server := newLoopbackServer(t, "127.0.0.1", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+	parsed, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	port, err := strconv.Atoi(parsed.Port())
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := Execute(context.Background(), netcupv1.FailoverProbeSpec{
+		Phase:         netcupv1.ProbePhasePostRoute,
+		Type:          netcupv1.ProbeTypeHTTP,
+		Target:        netcupv1.ProbeTarget{Address: server.URL, Port: int32(port)},
+		NetworkPolicy: netcupv1.ProbeNetworkPolicy{AllowPrivateNetworks: true},
+	})
+	if !result.Success {
+		t.Fatalf("explicit URL probe failed: %s", result.Reason)
+	}
+}
+
 func TestTLSProbeRejectsInvalidCABundle(t *testing.T) {
 	result := ExecuteWithCredentialAndCABundle(context.Background(), netcupv1.FailoverProbeSpec{
 		Phase:         netcupv1.ProbePhasePreRoute,
