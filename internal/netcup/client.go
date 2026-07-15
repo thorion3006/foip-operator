@@ -23,6 +23,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -40,6 +41,8 @@ type Client struct {
 	userID       int
 	refreshToken string
 	http         *http.Client
+	scpBase      string
+	tokenURL     string
 
 	mu          sync.Mutex
 	accessToken string
@@ -96,7 +99,25 @@ func New(userID int, refreshToken string) *Client {
 		userID:       userID,
 		refreshToken: refreshToken,
 		http:         &http.Client{},
+		scpBase:      scpBase,
+		tokenURL:     tokenURL,
 	}
+}
+
+// NewFromEnvironment uses the production Netcup endpoints by default. The
+// endpoint override is intentionally opt-in so deterministic E2E tests can
+// run against an in-cluster fake provider without contacting Netcup.
+func NewFromEnvironment(userID int, refreshToken string) *Client {
+	client := New(userID, refreshToken)
+	if endpoint := strings.TrimRight(os.Getenv("NETCUP_API_BASE_URL"), "/"); endpoint != "" {
+		client.scpBase = endpoint
+		if tokenEndpoint := strings.TrimRight(os.Getenv("NETCUP_TOKEN_URL"), "/"); tokenEndpoint != "" {
+			client.tokenURL = tokenEndpoint
+		} else {
+			client.tokenURL = endpoint + "/token"
+		}
+	}
+	return client
 }
 
 // token returns a valid access token, refreshing it if necessary.
@@ -111,7 +132,7 @@ func (c *Client) token(ctx context.Context) (string, error) {
 		"refresh_token": {c.refreshToken},
 		"client_id":     {clientID},
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, tokenURL, strings.NewReader(body.Encode()))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.tokenURL, strings.NewReader(body.Encode()))
 	if err != nil {
 		return "", err
 	}
@@ -149,7 +170,7 @@ func (c *Client) do(ctx context.Context, method, path string, body io.Reader) ([
 	if err != nil {
 		return nil, 0, nil, err
 	}
-	req, err := http.NewRequestWithContext(ctx, method, scpBase+path, body)
+	req, err := http.NewRequestWithContext(ctx, method, c.scpBase+path, body)
 	if err != nil {
 		return nil, 0, nil, err
 	}

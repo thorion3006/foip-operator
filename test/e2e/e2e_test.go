@@ -24,6 +24,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -71,6 +72,54 @@ var _ = Describe("Manager", Ordered, func() {
 		cmd = exec.Command("make", "deploy", fmt.Sprintf("IMG=%s", managerImage))
 		_, err = utils.Run(cmd)
 		Expect(err).NotTo(HaveOccurred(), "Failed to deploy the controller-manager")
+
+		By("deploying the deterministic fake provider")
+		applyManifest(fmt.Sprintf(`apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fake-provider
+  namespace: %s
+  labels:
+    app: fake-provider
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: fake-provider
+  template:
+    metadata:
+      labels:
+        app: fake-provider
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: fake-provider
+        image: %s
+        imagePullPolicy: IfNotPresent
+        command: ["/fake-provider"]
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: ["ALL"]
+`, namespace, managerImage))
+		cmd = exec.Command("kubectl", "expose", "deployment", "fake-provider", "--port=8080", "--target-port=8080", "--namespace", namespace)
+		_, err = utils.Run(cmd)
+		Expect(err).NotTo(HaveOccurred(), "Failed to expose the fake provider")
+		cmd = exec.Command("kubectl", "rollout", "status", "deployment/fake-provider", "--namespace", namespace, "--timeout=3m")
+		_, err = utils.Run(cmd)
+		Expect(err).NotTo(HaveOccurred(), "Fake provider did not become ready")
+
+		By("configuring the controller to use the fake provider")
+		cmd = exec.Command("kubectl", "set", "env", "deployment/foip-operator-controller-manager", "-n", namespace,
+			"NETCUP_API_BASE_URL=http://fake-provider:8080", "NETCUP_TOKEN_URL=http://fake-provider:8080/token")
+		_, err = utils.Run(cmd)
+		Expect(err).NotTo(HaveOccurred(), "Failed to configure the fake provider endpoint")
+		cmd = exec.Command("kubectl", "rollout", "status", "deployment/foip-operator-controller-manager", "--namespace", namespace, "--timeout=3m")
+		_, err = utils.Run(cmd)
+		Expect(err).NotTo(HaveOccurred(), "Controller did not restart with the fake provider endpoint")
 	})
 
 	// After all tests have been executed, clean up by undeploying the controller, uninstalling CRDs,
@@ -86,6 +135,10 @@ var _ = Describe("Manager", Ordered, func() {
 
 		By("undeploying the controller-manager")
 		cmd = exec.Command("make", "undeploy")
+		_, _ = utils.Run(cmd)
+
+		By("removing the fake provider")
+		cmd = exec.Command("kubectl", "delete", "service,deployment", "fake-provider", "-n", namespace, "--ignore-not-found")
 		_, _ = utils.Run(cmd)
 
 		By("uninstalling CRDs")
@@ -274,6 +327,52 @@ var _ = Describe("Manager", Ordered, func() {
 			Eventually(verifyMetricsAvailable, 2*time.Minute).Should(Succeed())
 		})
 
+		It("should complete a persisted handoff through the fake provider", func() {
+			By("creating provider credentials")
+			applyManifest(`apiVersion: v1
+kind: Secret
+metadata:
+  name: e2e-netcup-credentials
+  namespace: foip-operator-system
+type: Opaque
+stringData:
+  userId: "42"
+  refreshToken: fake-refresh-token
+`)
+
+			By("annotating a Kind node as a provider target")
+			nodeOutput, err := utils.Run(exec.Command("kubectl", "get", "nodes", "-o", "jsonpath={.items[0].metadata.name}"))
+			Expect(err).NotTo(HaveOccurred())
+			nodeName := strings.TrimSpace(nodeOutput)
+			Expect(nodeName).NotTo(BeEmpty())
+			cmd := exec.Command("kubectl", "annotate", "node", nodeName,
+				"foip.noshoes.xyz/server-id=12345", "foip.noshoes.xyz/mac-address=02:00:00:00:00:01", "--overwrite")
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("creating a target-prepared failover resource")
+			applyManifest(fmt.Sprintf(`apiVersion: foip.noshoes.xyz/v1
+kind: FailoverIp
+metadata:
+  name: e2e-handoff
+  namespace: %s
+spec:
+  ip: 192.0.2.44
+  secretName: e2e-netcup-credentials
+`, namespace))
+			cmd = exec.Command("kubectl", "patch", "failoverip", "e2e-handoff", "--subresource=status", "--type=merge",
+				"-p", fmt.Sprintf(`{"status":{"transitionID":"e2e-transition","phase":"TargetPrepared","targetNode":%q,"localOwners":[%q]}}`, nodeName, nodeName), "-n", namespace)
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("waiting for the handoff to converge")
+			Eventually(func(g Gomega) {
+				output, getErr := utils.Run(exec.Command("kubectl", "get", "failoverip", "e2e-handoff", "-n", namespace, "-o", "jsonpath={.status.phase}"))
+				g.Expect(getErr).NotTo(HaveOccurred())
+				g.Expect(strings.TrimSpace(output)).To(Equal("Succeeded"))
+			}, 3*time.Minute, time.Second).Should(Succeed())
+		})
+
 		// +kubebuilder:scaffold:e2e-webhooks-checks
 
 		// TODO: Customize the e2e test suite with scenarios specific to your project.
@@ -287,6 +386,18 @@ var _ = Describe("Manager", Ordered, func() {
 		// ))
 	})
 })
+
+func applyManifest(manifest string) {
+	file, err := os.CreateTemp("", "foip-e2e-*.yaml")
+	Expect(err).NotTo(HaveOccurred())
+	name := file.Name()
+	defer func() { _ = os.Remove(name) }()
+	_, err = file.WriteString(manifest)
+	Expect(err).NotTo(HaveOccurred())
+	Expect(file.Close()).To(Succeed())
+	_, err = utils.Run(exec.Command("kubectl", "apply", "-f", name))
+	Expect(err).NotTo(HaveOccurred())
+}
 
 // serviceAccountToken returns a token for the specified service account in the given namespace.
 // It uses the Kubernetes TokenRequest API to generate a token by directly sending a request

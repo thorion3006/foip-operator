@@ -127,6 +127,14 @@ docker-build: ## Build docker image with the manager.
 		--build-arg BUILD_DATE=$(BUILD_DATE) \
 		-t ${IMG} .
 
+.PHONY: docker-build-e2e
+docker-build-e2e: ## Build the manager image with the deterministic E2E fake provider.
+	$(PODMAN_ENV_PREFIX) $(CONTAINER_TOOL) build --target e2e $(PODMAN_TIMESTAMP_FLAG) \
+		--build-arg VERSION=$(VERSION) \
+		--build-arg VCS_REF=$(VCS_REF) \
+		--build-arg BUILD_DATE=$(BUILD_DATE) \
+		-t ${IMG} .
+
 .PHONY: docker-push
 docker-push: ## Push docker image with the manager.
 	$(CONTAINER_TOOL) push ${IMG}

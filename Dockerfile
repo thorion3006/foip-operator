@@ -22,9 +22,15 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 	CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} \
 	go build -trimpath -ldflags="-s -w" -a -o node-interface ./cmd/node-interface/
 
+FROM builder AS e2e-builder
+RUN --mount=type=cache,target=/go/pkg/mod \
+	--mount=type=cache,target=/root/.cache/go-build \
+	CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} \
+	go build -tags=e2e -trimpath -ldflags="-s -w" -a -o fake-provider ./cmd/fake-provider/
+
 # Minimal runtime image with both binaries.
 # The Deployment runs /foip; the DaemonSet runs /node-interface (set via pod spec command).
-FROM scratch
+FROM scratch AS runtime
 ARG VERSION=unknown
 ARG VCS_REF=unknown
 ARG BUILD_DATE=unknown
@@ -44,3 +50,10 @@ COPY --from=builder /workspace/foip           /foip
 COPY --from=builder /workspace/node-interface /node-interface
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 USER 65532:65532
+
+# The E2E-only target adds a deterministic fake provider without putting it in
+# the production image selected by a normal docker build.
+FROM runtime AS e2e
+COPY --from=e2e-builder /workspace/fake-provider /fake-provider
+
+FROM runtime AS production

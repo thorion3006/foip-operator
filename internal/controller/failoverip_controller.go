@@ -69,7 +69,7 @@ type failoverIPClient interface {
 }
 
 var newFailoverIPClient = func(userID int, refreshToken string) failoverIPClient {
-	return netcup.New(userID, refreshToken)
+	return netcup.NewFromEnvironment(userID, refreshToken)
 }
 
 // +kubebuilder:rbac:groups=foip.noshoes.xyz,resources=failoverips;failoverprobes,verbs=get;list;watch;update;patch
