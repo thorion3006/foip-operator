@@ -361,14 +361,13 @@ func (r *FailoverIpReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		return ctrl.Result{RequeueAfter: preparationPollInterval}, nil
 	}
 	if err := evaluateProbePhase(ctx, r.APIReader, foip, netcupv1.ProbePhasePostRoute); err != nil {
-		patch := client.MergeFrom(foip.DeepCopy())
-		foip.Status.LastError = err.Error()
-		foip.Status.Phase = netcupv1.FailoverPhaseDegraded
-		netcupv1.SetCondition(&foip.Status, netcupv1.ConditionDegraded, metav1.ConditionTrue, "TrafficProbeFailed", "Post-route traffic verification failed", metav1.Now())
-		if patchErr := r.Status().Patch(ctx, &foip, patch); patchErr != nil {
-			return ctrl.Result{}, patchErr
+		commitDegraded, recoveryResult, recoveryErr := r.recoverPostRouteFailure(ctx, &foip, nc, foipID)
+		if recoveryErr != nil {
+			return ctrl.Result{}, recoveryErr
 		}
-		return ctrl.Result{RequeueAfter: preparationPollInterval}, nil
+		if !commitDegraded {
+			return recoveryResult, nil
+		}
 	}
 	if foip.Status.Phase == netcupv1.FailoverPhaseVerifyingTraffic {
 		patch := client.MergeFrom(foip.DeepCopy())

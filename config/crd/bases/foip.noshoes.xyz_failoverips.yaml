@@ -98,6 +98,17 @@ spec:
                 format: int32
                 minimum: 0
                 type: integer
+              recoveryPolicy:
+                default: HoldDualOwnership
+                description: |-
+                  RecoveryPolicy defines the action after provider routing succeeds but
+                  post-route traffic verification fails.
+                enum:
+                - HoldDualOwnership
+                - RollbackProvider
+                - CommitDegraded
+                - ManualIntervention
+                type: string
               recoveryThreshold:
                 default: 2
                 format: int32
@@ -239,6 +250,14 @@ spec:
                 description: ProviderObservedOwner is the server ID observed from
                   the provider.
                 type: string
+              recoveryAction:
+                description: |-
+                  RecoveryPolicy defines the action after provider routing succeeds but
+                  post-route traffic verification fails.
+                type: string
+              recoveryAttempts:
+                format: int32
+                type: integer
               retryCount:
                 format: int32
                 type: integer

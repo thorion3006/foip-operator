@@ -47,6 +47,17 @@ const (
 	FailoverPhaseBlocked             FailoverPhase = "Blocked"
 )
 
+// RecoveryPolicy defines the action after provider routing succeeds but
+// post-route traffic verification fails.
+type RecoveryPolicy string
+
+const (
+	RecoveryPolicyHoldDualOwnership  RecoveryPolicy = "HoldDualOwnership"
+	RecoveryPolicyRollbackProvider   RecoveryPolicy = "RollbackProvider"
+	RecoveryPolicyCommitDegraded     RecoveryPolicy = "CommitDegraded"
+	RecoveryPolicyManualIntervention RecoveryPolicy = "ManualIntervention"
+)
+
 // FailoverIpSpec defines the desired state of FailoverIp.
 type FailoverIpSpec struct {
 	// IP is the failover IP address to manage, without a prefix length.
@@ -82,6 +93,9 @@ type FailoverIpSpec struct {
 	// +kubebuilder:validation:Minimum=0
 	MinHealthySeconds  int32 `json:"minHealthySeconds,omitempty"`
 	PreferCurrentOwner bool  `json:"preferCurrentOwner,omitempty"`
+	// +kubebuilder:validation:Enum=HoldDualOwnership;RollbackProvider;CommitDegraded;ManualIntervention
+	// +kubebuilder:default=HoldDualOwnership
+	RecoveryPolicy RecoveryPolicy `json:"recoveryPolicy,omitempty"`
 
 	// Probes is optional; an empty list enables node-health-only operation.
 	// +kubebuilder:validation:MaxItems=32
@@ -219,15 +233,17 @@ type FailoverIpStatus struct {
 	// PhaseStartedAt records when the current phase began.
 	PhaseStartedAt *metav1.Time `json:"phaseStartedAt,omitempty"`
 	// LastSuccessfulPhase is the last phase completed successfully.
-	LastSuccessfulPhase             FailoverPhase `json:"lastSuccessfulPhase,omitempty"`
-	RetryCount                      int32         `json:"retryCount,omitempty"`
-	LastError                       string        `json:"lastError,omitempty"`
-	LastAttemptedProviderMutationAt *metav1.Time  `json:"lastAttemptedProviderMutationAt,omitempty"`
-	LastConfirmedProviderMutationAt *metav1.Time  `json:"lastConfirmedProviderMutationAt,omitempty"`
-	NextEligibleMutationAt          *metav1.Time  `json:"nextEligibleMutationAt,omitempty"`
-	LastTransitionAt                *metav1.Time  `json:"lastTransitionAt,omitempty"`
-	CandidateSince                  *metav1.Time  `json:"candidateSince,omitempty"`
-	CandidateReason                 string        `json:"candidateReason,omitempty"`
+	LastSuccessfulPhase             FailoverPhase  `json:"lastSuccessfulPhase,omitempty"`
+	RetryCount                      int32          `json:"retryCount,omitempty"`
+	LastError                       string         `json:"lastError,omitempty"`
+	LastAttemptedProviderMutationAt *metav1.Time   `json:"lastAttemptedProviderMutationAt,omitempty"`
+	LastConfirmedProviderMutationAt *metav1.Time   `json:"lastConfirmedProviderMutationAt,omitempty"`
+	NextEligibleMutationAt          *metav1.Time   `json:"nextEligibleMutationAt,omitempty"`
+	LastTransitionAt                *metav1.Time   `json:"lastTransitionAt,omitempty"`
+	CandidateSince                  *metav1.Time   `json:"candidateSince,omitempty"`
+	CandidateReason                 string         `json:"candidateReason,omitempty"`
+	RecoveryAction                  RecoveryPolicy `json:"recoveryAction,omitempty"`
+	RecoveryAttempts                int32          `json:"recoveryAttempts,omitempty"`
 
 	// +kubebuilder:validation:Optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
