@@ -196,6 +196,12 @@ func (r *FailoverIpReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		return ctrl.Result{}, err
 	}
 	candidates := candidateNodes(nodeList.Items)
+	if foip.Status.TargetNode == "" {
+		if owner := nodeForServerID(nodeList.Items, currentServerID); owner != nil {
+			foip.Status.TargetNode = owner.Name
+			foip.Status.CandidateReason = "current provider owner observed"
+		}
+	}
 	better := betterNode(candidates, foip.Status.TargetNode)
 	if better == nil && foip.Status.Phase == netcupv1.FailoverPhaseStabilizing && foip.Status.CandidateSince != nil {
 		patch := client.MergeFrom(foip.DeepCopy())

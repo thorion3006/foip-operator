@@ -17,6 +17,8 @@ limitations under the License.
 package controller
 
 import (
+	"strconv"
+
 	corev1 "k8s.io/api/core/v1"
 
 	netcupv1 "github.com/thorion3006/foip-operator/api/v1"
@@ -106,6 +108,16 @@ func candidateNodes(nodes []corev1.Node) []corev1.Node {
 		}
 	}
 	return out
+}
+
+func nodeForServerID(nodes []corev1.Node, serverID int) *corev1.Node {
+	wanted := strconv.Itoa(serverID)
+	for i := range nodes {
+		if nodes[i].Annotations[netcupv1.ServerIDAnnotation] == wanted {
+			return &nodes[i]
+		}
+	}
+	return nil
 }
 
 // betterNode returns the healthiest candidate node, but only if it is
