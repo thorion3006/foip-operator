@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -90,7 +91,10 @@ func (r *FailoverIpReconciler) recoverPostRouteFailure(ctx context.Context, foip
 		if err := r.Status().Patch(ctx, foip, patch); err != nil {
 			return false, ctrl.Result{}, err
 		}
-		if err := nc.RouteFailoverIP(ctx, foipID, sourceServerID); err != nil {
+		routeCtx, routeSpan := observability.StartSpan(ctx, "foip-operator.provider", "RollbackFailoverIP", attribute.String("foip.transition_id", foip.Status.TransitionID), attribute.String("foip.provider", "netcup"))
+		if err := nc.RouteFailoverIP(routeCtx, foipID, sourceServerID); err != nil {
+			observability.RecordSpanError(routeSpan, err)
+			routeSpan.End()
 			return r.persistRecoveryState(ctx, foip, netcupv1.FailoverPhaseBlocked, "provider rollback failed", "RollbackFailed", now)
 		}
 		_, observedServerID, err = nc.FindFailoverIP(ctx, foip.Spec.IP)
@@ -100,6 +104,7 @@ func (r *FailoverIpReconciler) recoverPostRouteFailure(ctx context.Context, foip
 		confirmedAt := metav1.Now()
 		foip.Status.LastConfirmedProviderMutationAt = &confirmedAt
 		foip.Status.ProviderObservedOwner = strconv.Itoa(sourceServerID)
+		routeSpan.End()
 		return r.persistRecoveryState(ctx, foip, netcupv1.FailoverPhaseDegraded, "provider rolled back; traffic still requires intervention", "RollbackSucceeded", now)
 
 	case netcupv1.RecoveryPolicyHoldDualOwnership:

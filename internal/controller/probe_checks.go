@@ -7,7 +7,9 @@ import (
 	"strings"
 
 	netcupv1 "github.com/thorion3006/foip-operator/api/v1"
+	"github.com/thorion3006/foip-operator/internal/observability"
 	"github.com/thorion3006/foip-operator/internal/probe"
+	"go.opentelemetry.io/otel/attribute"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -49,6 +51,11 @@ func evaluateProbePhase(ctx context.Context, reader client.Reader, foip netcupv1
 			quorum = resource.Spec.Quorum
 		}
 		var result probe.Result
+		probeCtx, probeSpan := observability.StartSpan(ctx, "foip-operator.probe", "ExecuteProbe",
+			attribute.String("foip.transition_id", foip.Status.TransitionID),
+			attribute.String("foip.probe_phase", string(phase)),
+			attribute.String("foip.probe_type", string(resolvedSpec.Type)))
+		defer probeSpan.End()
 		var caBundle []byte
 		if resolvedSpec.CABundleSecretRef != nil {
 			var caSecret corev1.Secret
@@ -61,12 +68,12 @@ func evaluateProbePhase(ctx context.Context, reader client.Reader, foip netcupv1
 			}
 		}
 		if resolvedSpec.Type == netcupv1.ProbeTypeKubernetes {
-			result = probe.ExecuteKubernetes(ctx, reader, resolvedSpec.Kubernetes)
+			result = probe.ExecuteKubernetes(probeCtx, reader, resolvedSpec.Kubernetes)
 		} else if resolvedSpec.CredentialSecretRef == nil {
 			if len(caBundle) == 0 {
-				result = probe.Execute(ctx, resolvedSpec)
+				result = probe.Execute(probeCtx, resolvedSpec)
 			} else {
-				result = probe.ExecuteWithCredentialAndCABundle(ctx, resolvedSpec, "", caBundle)
+				result = probe.ExecuteWithCredentialAndCABundle(probeCtx, resolvedSpec, "", caBundle)
 			}
 		} else {
 			var secret corev1.Secret
@@ -77,7 +84,10 @@ func evaluateProbePhase(ctx context.Context, reader client.Reader, foip netcupv1
 			if len(credential) == 0 {
 				return fmt.Errorf("probe credential Secret key is empty")
 			}
-			result = probe.ExecuteWithCredentialAndCABundle(ctx, resolvedSpec, string(credential), caBundle)
+			result = probe.ExecuteWithCredentialAndCABundle(probeCtx, resolvedSpec, string(credential), caBundle)
+		}
+		if !result.Success {
+			probeSpan.SetAttributes(attribute.String("foip.probe_result", "failure"))
 		}
 		result, successCount, failureCount := applyProbeThresholds(resource.Spec, resource.Status, resource.Name, result)
 		results = append(results, result)

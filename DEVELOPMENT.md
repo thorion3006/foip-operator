@@ -82,6 +82,17 @@ The chart also exposes `observability.metrics.enabled` and
 changing the application image. `observability.otlp.endpoint` and
 `observability.otlp.insecure` control the collector target.
 
+The metrics are deliberately resource-independent. Useful generic alert rules
+include `foip_failover_phase{phase="Blocked"} > 0` or
+`increase(foip_provider_cooldown_block_total[10m]) > 0`; dashboards should use
+phase, provider, operation, and outcome labels only. Transition spans use the
+`foip.transition_id` attribute, so provider and probe child spans can be joined
+without putting IP addresses, URLs, headers, or credentials into labels.
+
+For a product-neutral deployment, scrape `/metrics` with Prometheus (or a
+compatible collector), send OTLP traces to any OpenTelemetry Collector, and
+route the two example expressions to the alerting system of your choice.
+
 Package and publish Helm chart version `0.3.0`:
 
 ```bash

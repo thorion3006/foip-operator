@@ -22,7 +22,10 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"regexp"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/go-logr/logr"
 	"go.opentelemetry.io/otel"
@@ -169,6 +172,56 @@ func RecordSpanError(span trace.Span, err error) {
 	if err == nil {
 		return
 	}
-	span.RecordError(err)
-	span.SetStatus(codes.Error, err.Error())
+	// Provider and probe errors may contain addresses, URLs, or credentials.
+	// Keep the span useful without copying those values into telemetry.
+	span.RecordError(errors.New(RedactText(err.Error())))
+	span.SetStatus(codes.Error, "operation failed")
+}
+
+// EventDeduper suppresses identical events for a bounded interval. It is
+// intentionally process-local: the Kubernetes event broadcaster provides the
+// cross-process aggregation, while this prevents a hot reconciliation loop
+// from filling the recorder queue before that aggregation happens.
+type EventDeduper struct {
+	mu       sync.Mutex
+	seen     map[string]time.Time
+	interval time.Duration
+}
+
+func NewEventDeduper(interval time.Duration) *EventDeduper {
+	if interval <= 0 {
+		interval = time.Minute
+	}
+	return &EventDeduper{seen: make(map[string]time.Time), interval: interval}
+}
+
+// Allow reports whether an event should be emitted now.
+func (d *EventDeduper) Allow(key string, now time.Time) bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	for knownKey, last := range d.seen {
+		if now.Sub(last) >= d.interval {
+			delete(d.seen, knownKey)
+		}
+	}
+	if last, ok := d.seen[key]; ok && now.Sub(last) < d.interval {
+		return false
+	}
+	d.seen[key] = now
+	return true
+}
+
+var sensitiveTextPatterns = []*regexp.Regexp{
+	regexp.MustCompile(`(?i)https?://[^\s]+`),
+	regexp.MustCompile(`\b(?:\d{1,3}\.){3}\d{1,3}(?:/\d{1,2})?\b`),
+	regexp.MustCompile(`(?i)(authorization|cookie|refreshToken|password|secret)\s*[:=]\s*[^\s,;]+`),
+}
+
+// RedactText removes common sensitive values before text is put in telemetry.
+// Callers should still prefer stable error classes over raw error strings.
+func RedactText(value string) string {
+	for _, pattern := range sensitiveTextPatterns {
+		value = pattern.ReplaceAllString(value, "[REDACTED]")
+	}
+	return value
 }

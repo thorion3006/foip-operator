@@ -98,10 +98,14 @@ func (r *NodeInterfaceReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	shouldOwn := r.NodeName == foip.Status.TargetNode || r.NodeName == foip.Status.SourceNode
 	if shouldOwn {
 		assignStart := time.Now()
+		_, interfaceSpan := observability.StartSpan(ctx, "foip-operator.interface", "AssignFailoverIP", attribute.String("foip.transition_id", foip.Status.TransitionID), attribute.String("foip.operation", "assign"))
 		if err := ensureIPAssigned(mac, foip.Spec.IP); err != nil {
+			observability.RecordSpanError(interfaceSpan, err)
+			interfaceSpan.End()
 			observability.ObserveInterfaceOperation("nodeinterface", "assign", time.Since(assignStart), err)
 			return ctrl.Result{}, fmt.Errorf("assigning %s to interface with MAC %s: %w", foip.Spec.IP, mac, err)
 		}
+		interfaceSpan.End()
 		observability.ObserveInterfaceOperation("nodeinterface", "assign", time.Since(assignStart), nil)
 		log.Info("failover IP present on local interface", "ip", foip.Spec.IP, "mac", mac)
 
@@ -116,7 +120,10 @@ func (r *NodeInterfaceReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	}
 
 	removeStart := time.Now()
+	_, interfaceSpan := observability.StartSpan(ctx, "foip-operator.interface", "RemoveFailoverIP", attribute.String("foip.transition_id", foip.Status.TransitionID), attribute.String("foip.operation", "remove"))
 	removed, err := ensureIPRemoved(mac, foip.Spec.IP)
+	observability.RecordSpanError(interfaceSpan, err)
+	interfaceSpan.End()
 	if err != nil {
 		observability.ObserveInterfaceOperation("nodeinterface", "remove", time.Since(removeStart), err)
 		return ctrl.Result{}, fmt.Errorf("removing stale %s from interface with MAC %s: %w", foip.Spec.IP, mac, err)

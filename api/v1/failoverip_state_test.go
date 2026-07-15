@@ -2,6 +2,7 @@ package v1
 
 import (
 	"testing"
+	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -43,6 +44,21 @@ func TestStartAndAdvanceTransition(t *testing.T) {
 	}
 	if err := AdvanceTransition(&status, FailoverPhaseSucceeded, now); err == nil {
 		t.Fatal("expected illegal transition error")
+	}
+}
+
+func TestSetConditionOnlyChangesTransitionTimeOnMaterialChange(t *testing.T) {
+	first := metav1.NewTime(time.Unix(100, 0))
+	second := metav1.NewTime(time.Unix(200, 0))
+	status := FailoverIpStatus{}
+	SetCondition(&status, ConditionReady, metav1.ConditionFalse, "Selecting", "Selecting a failover target", first)
+	SetCondition(&status, ConditionReady, metav1.ConditionFalse, "Selecting", "Selecting a failover target", second)
+	if len(status.Conditions) != 1 || !status.Conditions[0].LastTransitionTime.Equal(&first) {
+		t.Fatalf("identical condition was treated as a transition: %#v", status.Conditions)
+	}
+	SetCondition(&status, ConditionReady, metav1.ConditionTrue, "Succeeded", "Failover transition completed successfully", second)
+	if status.Conditions[0].Status != metav1.ConditionTrue || !status.Conditions[0].LastTransitionTime.Equal(&second) {
+		t.Fatalf("material condition transition not recorded: %#v", status.Conditions[0])
 	}
 }
 

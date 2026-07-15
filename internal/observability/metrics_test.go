@@ -18,6 +18,7 @@ package observability
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -79,6 +80,71 @@ func TestObserveSafetyMetricsUseBoundedLabels(t *testing.T) {
 					if label.GetName() == "resource" || label.GetName() == "ip" || label.GetName() == "url" {
 						t.Fatalf("unsafe high-cardinality label %q present", label.GetName())
 					}
+				}
+			}
+		}
+	}
+}
+
+func TestEventDeduperSuppressesRepeatedEvents(t *testing.T) {
+	d := NewEventDeduper(time.Minute)
+	now := time.Unix(100, 0)
+	if !d.Allow("same-failure", now) {
+		t.Fatal("first event was suppressed")
+	}
+	if d.Allow("same-failure", now.Add(time.Second)) {
+		t.Fatal("repeated event was not suppressed")
+	}
+	if !d.Allow("same-failure", now.Add(time.Minute)) {
+		t.Fatal("event was not allowed after the deduplication window")
+	}
+}
+
+func TestRedactTextRemovesSensitiveTelemetryValues(t *testing.T) {
+	input := "request https://example.test/login from 192.0.2.10 authorization=Bearer-secret refreshToken=secret-value"
+	got := RedactText(input)
+	for _, secret := range []string{"https://example.test/login", "192.0.2.10", "Bearer-secret", "secret-value"} {
+		if strings.Contains(got, secret) {
+			t.Fatalf("telemetry retained %q: %q", secret, got)
+		}
+	}
+}
+
+func TestMetricLabelsFallbackToBoundedValues(t *testing.T) {
+	ObserveReconcile("resource-name", "retry-123", time.Second)
+	ObserveProviderCall("provider-123", "operation-123", time.Second, nil)
+	ObservePhase("phase-123", time.Second)
+	ObserveRecoveryAction("policy-123")
+	// The calls above must not create labels containing their arbitrary values.
+	mfs, err := crmetrics.Registry.Gather()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, mf := range mfs {
+		for _, metric := range mf.GetMetric() {
+			for _, label := range metric.GetLabel() {
+				if strings.Contains(label.GetValue(), "123") {
+					t.Fatalf("unbounded label value %q in %s", label.GetValue(), mf.GetName())
+				}
+			}
+		}
+	}
+}
+
+func TestObservePhaseStateExposesOneCurrentPhase(t *testing.T) {
+	ObservePhaseState("Blocked")
+	mfs, err := crmetrics.Registry.Gather()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, mf := range mfs {
+		if mf.GetName() != "foip_failover_phase" {
+			continue
+		}
+		for _, metric := range mf.GetMetric() {
+			for _, label := range metric.GetLabel() {
+				if label.GetName() == "phase" && label.GetValue() == "Blocked" && metric.GetGauge().GetValue() != 1 {
+					t.Fatalf("blocked phase gauge = %v, want 1", metric.GetGauge().GetValue())
 				}
 			}
 		}
