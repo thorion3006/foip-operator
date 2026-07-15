@@ -13,6 +13,8 @@ Highlights:
   cooldown, and bounded jittered retry delays.
 - FailoverProbe resources support optional provider-neutral TCP, TLS, HTTP(S),
   and Kubernetes readiness checks with `All`, `Any`, and quorum composition.
+- Node ownership is tracked explicitly through `SourceNode`, `TargetNode`, and
+  `LocalOwners`, with stale owners cleaned up only after provider convergence.
 - Probe execution fails closed for sensitive destinations by default, validates
   DNS results and redirects, limits response bodies, and keeps Secret values
   out of status, events, metrics, traces, and errors.
