@@ -73,6 +73,37 @@ var (
 		Help:      "Time spent completing a make-before-break failover handoff",
 		Buckets:   prometheus.ExponentialBuckets(0.01, 2, 16),
 	})
+	phaseDuration = prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Namespace: "foip",
+		Subsystem: "failover",
+		Name:      "phase_duration_seconds",
+		Help:      "Time spent in a persisted failover phase",
+		Buckets:   prometheus.ExponentialBuckets(0.01, 2, 16),
+	}, []string{"phase"})
+	phaseTransitions = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "foip",
+		Subsystem: "failover",
+		Name:      "phase_transition_total",
+		Help:      "Persisted failover phase transitions",
+	}, []string{"from", "to"})
+	cooldownBlocks = prometheus.NewCounter(prometheus.CounterOpts{
+		Namespace: "foip",
+		Subsystem: "provider",
+		Name:      "cooldown_block_total",
+		Help:      "Provider mutations blocked by cooldown",
+	})
+	recoveryActions = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "foip",
+		Subsystem: "failover",
+		Name:      "recovery_action_total",
+		Help:      "Post-route recovery actions by policy",
+	}, []string{"policy"})
+	ownerCount = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: "foip",
+		Subsystem: "failover",
+		Name:      "local_owner_count",
+		Help:      "Observed local failover IP owner count",
+	}, []string{"phase"})
 )
 
 func init() {
@@ -85,6 +116,11 @@ func init() {
 			interfaceTotal,
 			interfaceDuration,
 			handoffDuration,
+			phaseDuration,
+			phaseTransitions,
+			cooldownBlocks,
+			recoveryActions,
+			ownerCount,
 		)
 	})
 }
@@ -118,4 +154,30 @@ func ObserveInterfaceOperation(controller, operation string, duration time.Durat
 // ObserveHandoffDuration records the end-to-end duration of a successful handoff.
 func ObserveHandoffDuration(duration time.Duration) {
 	handoffDuration.Observe(duration.Seconds())
+}
+
+func ObservePhase(phase string, duration time.Duration) {
+	if phase != "" {
+		phaseDuration.WithLabelValues(phase).Observe(duration.Seconds())
+	}
+}
+
+func ObservePhaseTransition(from, to string) {
+	if from != "" && to != "" {
+		phaseTransitions.WithLabelValues(from, to).Inc()
+	}
+}
+
+func ObserveCooldownBlock() { cooldownBlocks.Inc() }
+
+func ObserveRecoveryAction(policy string) {
+	if policy != "" {
+		recoveryActions.WithLabelValues(policy).Inc()
+	}
+}
+
+func ObserveOwnerCount(phase string, count int) {
+	if phase != "" {
+		ownerCount.WithLabelValues(phase).Set(float64(count))
+	}
 }

@@ -11,6 +11,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	netcupv1 "github.com/thorion3006/foip-operator/api/v1"
+	"github.com/thorion3006/foip-operator/internal/observability"
 )
 
 // recoverPostRouteFailure applies the configured policy. The boolean result
@@ -20,6 +21,7 @@ func (r *FailoverIpReconciler) recoverPostRouteFailure(ctx context.Context, foip
 	if policy == "" {
 		policy = netcupv1.RecoveryPolicyHoldDualOwnership
 	}
+	observability.ObserveRecoveryAction(string(policy))
 	foip.Status.RecoveryAction = policy
 	foip.Status.RecoveryAttempts++
 	now := metav1.Now()

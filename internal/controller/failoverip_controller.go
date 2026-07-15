@@ -77,6 +77,7 @@ var newFailoverIPClient = func(userID int, refreshToken string) failoverIPClient
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get
 func (r *FailoverIpReconciler) Reconcile(ctx context.Context, req ctrl.Request) (res ctrl.Result, err error) { //nolint:gocyclo // this method coordinates persisted safety gates
 	start := time.Now()
+	currentPhase := ""
 	ctx, span := observability.StartSpan(ctx, "foip-operator.failoverip", "Reconcile",
 		attribute.String("k8s.namespace", req.Namespace),
 		attribute.String("k8s.name", req.Name),
@@ -92,6 +93,7 @@ func (r *FailoverIpReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			result = "requeue_after"
 		}
 		observability.ObserveReconcile("failoverip", result, time.Since(start))
+		observability.ObservePhase(currentPhase, time.Since(start))
 	}()
 
 	log := observability.Logger(ctx, logf.FromContext(ctx))
@@ -100,6 +102,8 @@ func (r *FailoverIpReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	if err := r.Get(ctx, req.NamespacedName, &foip); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
+	currentPhase = string(foip.Status.Phase)
+	span.SetAttributes(attribute.String("foip.transition_id", foip.Status.TransitionID), attribute.String("foip.phase", currentPhase))
 	if foip.Status.TransitionID == "" {
 		patch := client.MergeFrom(foip.DeepCopy())
 		now := metav1.Now()
@@ -276,6 +280,7 @@ func (r *FailoverIpReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		now := time.Now()
 		nextMutation, allowed := providerMutationGate(foip.Status, providerCooldown(foip.Spec), now)
 		if !allowed {
+			observability.ObserveCooldownBlock()
 			patch := client.MergeFrom(foip.DeepCopy())
 			eligible := metav1.NewTime(nextMutation)
 			foip.Status.NextEligibleMutationAt = &eligible
@@ -393,6 +398,7 @@ func (r *FailoverIpReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		return ctrl.Result{RequeueAfter: preparationPollInterval}, nil
 	}
 	if foip.Status.Phase == netcupv1.FailoverPhaseCleaningStaleOwners {
+		observability.ObserveOwnerCount(string(foip.Status.Phase), len(foip.Status.LocalOwners))
 		if len(foip.Status.LocalOwners) != 1 || !containsNode(foip.Status.LocalOwners, foip.Status.TargetNode) {
 			return ctrl.Result{RequeueAfter: preparationPollInterval}, nil
 		}

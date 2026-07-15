@@ -60,3 +60,27 @@ func TestObserveReconcileRegistersMetric(t *testing.T) {
 	counter := metric.GetMetric()[0].GetCounter()
 	g.Expect(counter.GetValue()).To(gomega.BeNumerically(">=", 1))
 }
+
+func TestObserveSafetyMetricsUseBoundedLabels(t *testing.T) {
+	ObservePhaseTransition("TargetPrepared", "RoutingProvider")
+	ObserveCooldownBlock()
+	ObserveRecoveryAction("HoldDualOwnership")
+	ObserveOwnerCount("CleaningStaleOwners", 2)
+	ObservePhase("VerifyingTraffic", time.Second)
+
+	mfs, err := crmetrics.Registry.Gather()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, mf := range mfs {
+		if mf.GetName() == "foip_failover_phase_transition_total" {
+			for _, metric := range mf.GetMetric() {
+				for _, label := range metric.GetLabel() {
+					if label.GetName() == "resource" || label.GetName() == "ip" || label.GetName() == "url" {
+						t.Fatalf("unsafe high-cardinality label %q present", label.GetName())
+					}
+				}
+			}
+		}
+	}
+}
