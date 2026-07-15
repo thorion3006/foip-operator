@@ -53,6 +53,9 @@ func ValidateStatus(status FailoverIpStatus) error {
 	if status.TransitionID == "" {
 		return fmt.Errorf("phase %s has no transition ID", status.Phase)
 	}
+	if _, known := legalPhaseTransitions[status.Phase]; !known {
+		return fmt.Errorf("unknown failover phase %q", status.Phase)
+	}
 	if status.TargetNode != "" && status.SourceNode != "" && status.TargetNode == status.SourceNode &&
 		status.Phase != FailoverPhaseCommitting && status.Phase != FailoverPhaseCleaningStaleOwners &&
 		status.Phase != FailoverPhaseSucceeded && status.Phase != FailoverPhaseIdle {

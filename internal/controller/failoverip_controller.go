@@ -129,6 +129,9 @@ func (r *FailoverIpReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		}
 		return ctrl.Result{}, err
 	}
+	if foip.Status.Phase == netcupv1.FailoverPhaseBlocked || foip.Status.Phase == netcupv1.FailoverPhaseDegraded {
+		return ctrl.Result{RequeueAfter: r.requeueAfter}, nil
+	}
 
 	var secret corev1.Secret
 	secretStart := time.Now()
