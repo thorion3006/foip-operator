@@ -28,6 +28,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -58,6 +59,7 @@ type FailoverIpReconciler struct {
 	client.Client
 	Scheme    *runtime.Scheme
 	APIReader client.Reader
+	Recorder  record.EventRecorder
 
 	requeueAfter time.Duration
 }
@@ -109,6 +111,7 @@ func (r *FailoverIpReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		now := metav1.Now()
 		netcupv1.StartTransition(&foip.Status, now)
 		netcupv1.SetCondition(&foip.Status, netcupv1.ConditionReady, metav1.ConditionFalse, "Selecting", "Selecting a failover target", now)
+		r.emitEvent(&foip, corev1.EventTypeNormal, "TransitionStarted", "Started failover transition")
 		if err := r.Status().Patch(ctx, &foip, patch); err != nil {
 			return ctrl.Result{}, err
 		}
@@ -144,6 +147,7 @@ func (r *FailoverIpReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		foip.Status.Phase = netcupv1.FailoverPhaseBlocked
 		foip.Status.LastError = err.Error()
 		netcupv1.SetCondition(&foip.Status, netcupv1.ConditionBlocked, metav1.ConditionTrue, "ProviderOwnershipChanged", "Provider ownership changed out of band", metav1.Now())
+		r.emitEvent(&foip, corev1.EventTypeWarning, "ProviderOwnershipChanged", "Blocked transition after provider ownership changed")
 		if patchErr := r.Status().Patch(ctx, &foip, patch); patchErr != nil {
 			return ctrl.Result{}, patchErr
 		}
@@ -407,6 +411,7 @@ func (r *FailoverIpReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		if err := netcupv1.AdvanceTransition(&foip.Status, netcupv1.FailoverPhaseSucceeded, now); err != nil {
 			return ctrl.Result{}, err
 		}
+		r.emitEvent(&foip, corev1.EventTypeNormal, "HandoffSucceeded", "Failover transition converged to one local owner")
 		if err := r.Status().Patch(ctx, &foip, patch); err != nil {
 			return ctrl.Result{}, err
 		}
@@ -421,6 +426,12 @@ func (r *FailoverIpReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		return ctrl.Result{}, err
 	}
 	return ctrl.Result{}, fmt.Errorf("unexpected persisted phase")
+}
+
+func (r *FailoverIpReconciler) emitEvent(foip *netcupv1.FailoverIp, eventType, reason, message string) {
+	if r.Recorder != nil {
+		r.Recorder.Event(foip, eventType, reason, message)
+	}
 }
 
 func containsNode(nodes []string, name string) bool {
@@ -488,6 +499,7 @@ func (r *FailoverIpReconciler) probeToFoips(ctx context.Context, obj client.Obje
 
 func (r *FailoverIpReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	r.APIReader = mgr.GetAPIReader()
+	r.Recorder = mgr.GetEventRecorderFor("foip-controller")
 	r.requeueAfter = defaultRequeueTime
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&netcupv1.FailoverIp{}, builder.WithPredicates(predicate.ResourceVersionChangedPredicate{})).

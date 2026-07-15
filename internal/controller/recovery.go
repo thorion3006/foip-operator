@@ -22,6 +22,7 @@ func (r *FailoverIpReconciler) recoverPostRouteFailure(ctx context.Context, foip
 		policy = netcupv1.RecoveryPolicyHoldDualOwnership
 	}
 	observability.ObserveRecoveryAction(string(policy))
+	r.emitEvent(foip, corev1.EventTypeWarning, "RecoveryAction", "Applying configured post-route recovery policy")
 	foip.Status.RecoveryAction = policy
 	foip.Status.RecoveryAttempts++
 	now := metav1.Now()
