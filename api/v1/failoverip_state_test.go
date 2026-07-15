@@ -58,6 +58,27 @@ func TestValidateStatusRejectsContradictoryOwnership(t *testing.T) {
 	}
 }
 
+func TestValidateFailoverIpSpecRejectsUnsafeTiming(t *testing.T) {
+	for name, spec := range map[string]FailoverIpSpec{
+		"negative threshold": {FailureThreshold: -1},
+		"negative cooldown":  {ProviderCooldownSeconds: -1},
+		"retry range":        {RetryBaseSeconds: 10, RetryMaxSeconds: 2},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := ValidateFailoverIpSpec(spec); err == nil {
+				t.Fatal("expected invalid specification")
+			}
+		})
+	}
+}
+
+func TestValidateProbeSpecRejectsUnknownType(t *testing.T) {
+	err := ValidateProbeSpec(FailoverProbeSpec{Phase: ProbePhasePreRoute, Type: ProbeType("Unknown"), Target: ProbeTarget{Address: "example.com", Port: 443}})
+	if err == nil {
+		t.Fatal("expected unknown probe type to be rejected")
+	}
+}
+
 func FuzzValidateStatusNeverPanics(f *testing.F) {
 	f.Add("transition-1", string(FailoverPhaseSucceeded), "node-a", "node-a")
 	f.Add("", "unknown", "", "")

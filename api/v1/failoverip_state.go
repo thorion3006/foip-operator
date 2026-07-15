@@ -111,6 +111,10 @@ func ValidateProbeSpec(spec FailoverProbeSpec) error {
 		spec.Composition != ProbeCompositionAny && spec.Composition != ProbeCompositionQuorum {
 		return fmt.Errorf("unsupported probe composition %q", spec.Composition)
 	}
+	if spec.Type != ProbeTypeTCP && spec.Type != ProbeTypeTLS && spec.Type != ProbeTypeHTTP &&
+		spec.Type != ProbeTypeHTTPS && spec.Type != ProbeTypeKubernetes {
+		return fmt.Errorf("unsupported probe type %q", spec.Type)
+	}
 	if spec.Type == ProbeTypeKubernetes {
 		if spec.Kubernetes == nil || spec.Kubernetes.Kind == "" || spec.Kubernetes.Name == "" {
 			return fmt.Errorf("kubernetes probes require kind and name")
@@ -143,6 +147,13 @@ func validateNetworkProbeSpec(spec FailoverProbeSpec) error {
 }
 
 func ValidateFailoverIpSpec(spec FailoverIpSpec) error {
+	if spec.ProviderCooldownSeconds < 0 || spec.RetryBaseSeconds < 0 || spec.RetryMaxSeconds < 0 ||
+		spec.FailureThreshold < 0 || spec.RecoveryThreshold < 0 || spec.StabilizationSeconds < 0 || spec.MinHealthySeconds < 0 {
+		return fmt.Errorf("failover timing and threshold values cannot be negative")
+	}
+	if spec.RetryBaseSeconds > 0 && spec.RetryMaxSeconds > 0 && spec.RetryBaseSeconds > spec.RetryMaxSeconds {
+		return fmt.Errorf("retryBaseSeconds cannot exceed retryMaxSeconds")
+	}
 	if spec.ProbeComposition == ProbeCompositionQuorum && spec.ProbeQuorum < 1 {
 		return fmt.Errorf("probeQuorum must be at least one for quorum composition")
 	}
