@@ -11,7 +11,7 @@ This repository was developed with assistance from AI tools. Human review is sti
 expected for changes that affect production behavior, security, or release artifacts.
 
 For internals, controller flow, limitations, and edge cases, see [ARCHITECTURE.md](ARCHITECTURE.md).
-For the destructive v0.3.0 migration procedure, see [MIGRATION.md](MIGRATION.md).
+For the destructive v1.0.0 migration procedure, see [MIGRATION.md](MIGRATION.md).
 Release behavior and the breaking API summary are in [RELEASE_NOTES.md](RELEASE_NOTES.md).
 
 ## Fork Acknowledgement
@@ -192,7 +192,7 @@ from your deployment tooling and the binaries will export spans automatically:
 ```sh
 OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector.observability:4317
 OTEL_SERVICE_NAME=foip-operator-foip
-OTEL_RESOURCE_ATTRIBUTES=service.version=0.3.0,foip.component=foip
+OTEL_RESOURCE_ATTRIBUTES=service.version=1.0.0,foip.component=foip
 ```
 
 The Helm chart wires the service name and resource attributes by default for both

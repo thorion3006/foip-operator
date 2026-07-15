@@ -1,5 +1,5 @@
 # Image URL to use all building/pushing image targets
-IMG ?= ghcr.io/thorion3006/foip-operator/operator:0.3.0
+IMG ?= ghcr.io/thorion3006/foip-operator/operator:1.0.0
 
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
@@ -83,7 +83,7 @@ lint-config: golangci-lint ## Verify golangci-lint linter configuration
 ##@ Helm
 
 HELM ?= helm
-CHART_VERSION ?= 0.3.0
+CHART_VERSION ?= 1.0.0
 HELM_OCI_REPOSITORY ?= oci://ghcr.io/thorion3006
 
 .PHONY: helm-lint

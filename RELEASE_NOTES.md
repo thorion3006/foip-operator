@@ -1,6 +1,6 @@
-# Next breaking release
+# v1.0.0
 
-This release replaces the v0.3.0 implicit ownership fields with a persisted
+This v1.0.0 release replaces the v0.3.0 implicit ownership fields with a persisted
 failover transition state machine. It is not compatible with v0.3.0 custom
 resources or Helm values; recreate those resources as described in
 [MIGRATION.md](MIGRATION.md).

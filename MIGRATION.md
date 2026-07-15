@@ -1,6 +1,6 @@
-# Migration from v0.3.0
+# Migration to v1.0.0 from v0.3.0
 
-The production-safe orchestration release is a breaking API change. It does
+The v1.0.0 production-safe orchestration release is a breaking API change. It does
 not provide conversion webhooks or compatibility aliases for v0.3.0 objects,
 status fields, or Helm values.
 
