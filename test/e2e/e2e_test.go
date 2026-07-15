@@ -397,6 +397,42 @@ spec:
 			state := fakeProviderState()
 			Expect(state.RouteCount).To(Equal(1))
 			Expect(state.Owner).To(Equal(12345))
+
+			By("simulating node-agent ownership loss and rejoin")
+			applyManifest(fmt.Sprintf(`apiVersion: foip.noshoes.xyz/v1
+kind: FailoverIp
+metadata:
+  name: e2e-ownership
+  namespace: %s
+spec:
+  ip: 192.0.2.45
+  secretName: e2e-netcup-credentials
+`, namespace))
+			cmd = exec.Command("kubectl", "patch", "failoverip", "e2e-ownership", "--subresource=status", "--type=merge",
+				"-p", fmt.Sprintf(`{"status":{"transitionID":"ownership-transition","phase":"CleaningStaleOwners","sourceNode":%q,"targetNode":%q,"localOwners":[%q,"stale-node"]}}`, nodeName, nodeName, nodeName), "-n", namespace)
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("holding the transition while the target agent is unavailable")
+			cmd = exec.Command("kubectl", "patch", "failoverip", "e2e-ownership", "--subresource=status", "--type=merge",
+				"-p", `{"status":{"localOwners":[]}}`, "-n", namespace)
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Eventually(func(g Gomega) {
+				phase, _ := failoverStatusFields("e2e-ownership")
+				g.Expect(phase).To(Equal("CleaningStaleOwners"))
+			}, time.Minute, time.Second).Should(Succeed())
+
+			By("accepting the target agent rejoin only after it reports sole ownership")
+			cmd = exec.Command("kubectl", "patch", "failoverip", "e2e-ownership", "--subresource=status", "--type=merge",
+				"-p", fmt.Sprintf(`{"status":{"localOwners":[%q]}}`, nodeName), "-n", namespace)
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Eventually(func(g Gomega) {
+				output, getErr := utils.Run(exec.Command("kubectl", "get", "failoverip", "e2e-ownership", "-n", namespace, "-o", "jsonpath={.status.phase}"))
+				g.Expect(getErr).NotTo(HaveOccurred())
+				g.Expect(strings.TrimSpace(output)).To(Equal("Succeeded"))
+			}, time.Minute, time.Second).Should(Succeed())
 		})
 
 		// +kubebuilder:scaffold:e2e-webhooks-checks
