@@ -137,6 +137,14 @@ Set `spec.recoveryPolicy` to `HoldDualOwnership` (the safe default),
 `RollbackProvider`, `CommitDegraded`, or `ManualIntervention` to choose the
 post-route probe failure behavior.
 
+After correcting a blocked/degraded cause, request one controlled retry by
+changing the reconciliation token:
+
+```sh
+kubectl annotate foip my-failover-ip \
+  foip.noshoes.xyz/reconcile="$(date +%s)" --overwrite
+```
+
 ### Troubleshooting
 
 Check logs across all operator pods:

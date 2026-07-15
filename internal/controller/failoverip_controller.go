@@ -130,6 +130,25 @@ func (r *FailoverIpReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		return ctrl.Result{}, err
 	}
 	if foip.Status.Phase == netcupv1.FailoverPhaseBlocked || foip.Status.Phase == netcupv1.FailoverPhaseDegraded {
+		token := foip.Annotations[netcupv1.ManualReconcileAnnotation]
+		if token != "" && token != foip.Status.ManualReconcileToken {
+			patch := client.MergeFrom(foip.DeepCopy())
+			now := metav1.Now()
+			if err := netcupv1.AdvanceTransition(&foip.Status, netcupv1.FailoverPhaseSelecting, now); err != nil {
+				return ctrl.Result{}, err
+			}
+			foip.Status.ManualReconcileToken = token
+			foip.Status.LastError = ""
+			foip.Status.RecoveryAction = ""
+			foip.Status.RecoveryAttempts = 0
+			foip.Status.CandidateSince = nil
+			netcupv1.SetCondition(&foip.Status, netcupv1.ConditionReady, metav1.ConditionFalse, "ManualRetry", "Manual reconciliation requested", now)
+			r.emitEvent(&foip, corev1.EventTypeNormal, "ManualRetry", "Resuming blocked or degraded transition")
+			if err := r.Status().Patch(ctx, &foip, patch); err != nil {
+				return ctrl.Result{}, err
+			}
+			return ctrl.Result{RequeueAfter: preparationPollInterval}, nil
+		}
 		return ctrl.Result{RequeueAfter: r.requeueAfter}, nil
 	}
 

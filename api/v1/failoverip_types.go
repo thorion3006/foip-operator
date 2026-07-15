@@ -26,6 +26,9 @@ const (
 	MACAnnotation = "foip.noshoes.xyz/primary-mac"
 	// ServerIDAnnotation identifies the netcup server ID for the node.
 	ServerIDAnnotation = "foip.noshoes.xyz/server-id"
+	// ManualReconcileAnnotation is a user-controlled token for retrying a
+	// blocked or degraded transition after the cause has been corrected.
+	ManualReconcileAnnotation = "foip.noshoes.xyz/reconcile"
 )
 
 // FailoverPhase is the persisted phase of a failover transition.
@@ -244,6 +247,7 @@ type FailoverIpStatus struct {
 	CandidateReason                 string         `json:"candidateReason,omitempty"`
 	RecoveryAction                  RecoveryPolicy `json:"recoveryAction,omitempty"`
 	RecoveryAttempts                int32          `json:"recoveryAttempts,omitempty"`
+	ManualReconcileToken            string         `json:"manualReconcileToken,omitempty"`
 
 	// +kubebuilder:validation:Optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`

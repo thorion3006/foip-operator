@@ -222,6 +222,8 @@ spec:
                 items:
                   type: string
                 type: array
+              manualReconcileToken:
+                type: string
               nextEligibleMutationAt:
                 format: date-time
                 type: string
