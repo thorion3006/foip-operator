@@ -285,5 +285,11 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+
+      - name: Run deterministic packaging and release checks
+        run: ./hack/validate-packaging.sh
+
       - name: Run deterministic restart and release checks
         run: go test ./test/e2e -run 'TestPersistedState|TestReleaseWorkflow' -count=1 -v

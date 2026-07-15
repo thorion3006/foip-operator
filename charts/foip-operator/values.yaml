@@ -66,7 +66,15 @@ nodeInterface:
     name: ""
   podAnnotations: {}
   podLabels: {}
-  podSecurityContext: {}
+  podSecurityContext:
+    runAsNonRoot: true
+    seccompProfile:
+      type: RuntimeDefault
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop: [ALL]
+      add: [NET_ADMIN]
   resources: {}
   nodeSelector: {}
   tolerations: []

@@ -1,0 +1,11 @@
+# Minimal install-time resource: no external probe is required. The operator
+# still selects only eligible, healthy Kubernetes nodes.
+image:
+  repository: ghcr.io/thorion3006/foip-operator/operator
+  tag: "0.3.0"
+  pullPolicy: IfNotPresent
+
+failoverIps:
+  - name: node-health-only
+    ip: 192.0.2.10
+    secretName: netcup-scp-credentials

@@ -98,6 +98,10 @@ helm-package: ## Package the Helm chart into dist/.
 helm-push: helm-package ## Package and push the Helm chart to the fork's GHCR namespace.
 	$(HELM) push dist/foip-operator-$(CHART_VERSION).tgz $(HELM_OCI_REPOSITORY)
 
+.PHONY: release-readiness
+release-readiness: ## Validate rendered packaging and release workflow contracts.
+	./hack/validate-packaging.sh
+
 ##@ Build
 
 .PHONY: build

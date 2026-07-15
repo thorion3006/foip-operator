@@ -1,0 +1,51 @@
+# A conservative starting point for production installs.
+# The chart creates the node-health-only FailoverIp below and three reusable
+# probes so the rendered output exercises the TCP, HTTPS, Kubernetes, and
+# composed contracts without requiring a live endpoint during installation.
+image:
+  repository: ghcr.io/thorion3006/foip-operator/operator
+  tag: "0.3.0"
+  pullPolicy: IfNotPresent
+
+failoverIps:
+  - name: node-health-only
+    ip: 192.0.2.10
+    secretName: netcup-scp-credentials
+    probeComposition: All
+    probes:
+      - name: tcp-service
+      - name: https-service
+      - name: kubernetes-service
+
+failoverProbes:
+  - name: tcp-service
+    type: TCP
+    phase: PreRoute
+    target:
+      address: service.example.invalid
+      port: 5432
+  - name: https-service
+    type: HTTPS
+    phase: PostRoute
+    target:
+      address: https://service.example.invalid/readyz
+      host: service.example.invalid
+      port: 443
+      path: /readyz
+    expectedStatusMin: 200
+    expectedStatusMax: 299
+  - name: kubernetes-service
+    type: Kubernetes
+    phase: Continuous
+    kubernetes:
+      apiVersion: apps/v1
+      kind: Deployment
+      name: service
+      namespace: workload
+      jsonPath: .status.availableReplicas
+      expected: "1"
+
+# Keep the controller's Secret RBAC resourceNames narrow. Add only explicitly
+# referenced pre-existing secrets; do not use a wildcard or cluster-wide read.
+existingSecrets:
+  - probe-credentials

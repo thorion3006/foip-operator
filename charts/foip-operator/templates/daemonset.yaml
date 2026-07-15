@@ -43,8 +43,7 @@ spec:
           - --health-probe-bind-address=:8082
           - --metrics-bind-address={{ include "foip-operator.metricsBindAddress" . }}
         securityContext:
-          capabilities:
-            add: [NET_ADMIN]
+          {{- toYaml .Values.nodeInterface.securityContext | nindent 10 }}
         env:
         - name: NODE_NAME
           valueFrom:
