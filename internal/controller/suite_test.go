@@ -24,7 +24,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
@@ -32,6 +32,7 @@ import (
 )
 
 var k8sClient client.Client
+var testEnv *envtest.Environment
 
 func TestMain(m *testing.M) {
 	logf.SetLogger(zap.New(zap.WriteTo(os.Stderr), zap.UseDevMode(true)))
@@ -45,10 +46,23 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 
-	k8sClient = fake.NewClientBuilder().
-		WithScheme(scheme.Scheme).
-		WithStatusSubresource(&netcupv1.FailoverIp{}).
-		Build()
+	testEnv = &envtest.Environment{CRDDirectoryPaths: []string{"../../config/crd/bases"}}
+	config, err := testEnv.Start()
+	if err != nil {
+		_, _ = fmt.Fprintf(os.Stderr, "start envtest: %v\n", err)
+		os.Exit(1)
+	}
+	k8sClient, err = client.New(config, client.Options{Scheme: scheme.Scheme})
+	if err != nil {
+		_, _ = fmt.Fprintf(os.Stderr, "create envtest client: %v\n", err)
+		_ = testEnv.Stop()
+		os.Exit(1)
+	}
 
-	os.Exit(m.Run())
+	code := m.Run()
+	if err := testEnv.Stop(); err != nil {
+		_, _ = fmt.Fprintf(os.Stderr, "stop envtest: %v\n", err)
+		code = 1
+	}
+	os.Exit(code)
 }

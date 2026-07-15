@@ -217,8 +217,17 @@ func TestFailoverIpReconciler_CompletesMakeBeforeBreakHandoff(t *testing.T) {
 			LocalOwners:  []string{nodeName},
 		},
 	}
+	initialStatus := resource.Status.DeepCopy()
 	if err := k8sClient.Create(ctx, resource); err != nil {
 		t.Fatalf("create failoverip: %v", err)
+	}
+	var persisted netcupv1.FailoverIp
+	if err := k8sClient.Get(ctx, types.NamespacedName{Name: resourceName, Namespace: namespace}, &persisted); err != nil {
+		t.Fatalf("get created failoverip: %v", err)
+	}
+	persisted.Status = *initialStatus
+	if err := k8sClient.Status().Update(ctx, &persisted); err != nil {
+		t.Fatalf("persist initial status: %v", err)
 	}
 	t.Cleanup(func() {
 		_ = k8sClient.Delete(ctx, &netcupv1.FailoverIp{
