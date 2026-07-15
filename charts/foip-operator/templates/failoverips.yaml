@@ -9,4 +9,28 @@ metadata:
 spec:
   ip: {{ .ip }}
   secretName: {{ .secretName }}
+  {{- with .providerCooldownSeconds }}
+  providerCooldownSeconds: {{ . }}
+  {{- end }}
+  {{- with .stabilizationSeconds }}
+  stabilizationSeconds: {{ . }}
+  {{- end }}
+  {{- with .minHealthySeconds }}
+  minHealthySeconds: {{ . }}
+  {{- end }}
+  {{- with .probes }}
+  probes:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+{{- end }}
+{{- range .Values.failoverProbes }}
+---
+apiVersion: foip.noshoes.xyz/v1
+kind: FailoverProbe
+metadata:
+  name: {{ .name }}
+  labels:
+    {{- include "foip-operator.labels" $ | nindent 4 }}
+spec:
+  {{- omit . "name" | toYaml | nindent 2 }}
 {{- end }}

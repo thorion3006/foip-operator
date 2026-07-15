@@ -1,4 +1,4 @@
-apiVersion: netcup.foip.noshoes.xyz/v1
+apiVersion: foip.noshoes.xyz/v1
 kind: FailoverIp
 metadata:
   labels:
@@ -6,4 +6,7 @@ metadata:
     app.kubernetes.io/managed-by: kustomize
   name: failoverip-sample
 spec:
-  # TODO(user): Add fields here
+  ip: 1.2.3.4
+  secretName: netcup-scp-credentials
+  providerCooldownSeconds: 60
+  stabilizationSeconds: 30

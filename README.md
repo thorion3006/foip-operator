@@ -11,6 +11,7 @@ This repository was developed with assistance from AI tools. Human review is sti
 expected for changes that affect production behavior, security, or release artifacts.
 
 For internals, controller flow, limitations, and edge cases, see [ARCHITECTURE.md](ARCHITECTURE.md).
+For the destructive v0.3.0 migration procedure, see [MIGRATION.md](MIGRATION.md).
 
 ## Fork Acknowledgement
 
@@ -127,16 +128,10 @@ kubectl apply -f failoverip.yaml
 kubectl describe foip my-failover-ip
 ```
 
-```
-Spec:
-  Ip:           1.2.3.4
-  Secret Name:  netcup-scp-credentials
-Status:
-  Assigned Node:      node-1
-  Desired Node:       node-1
-  Last Sync Attempt:  2026-06-02T14:00:00Z
-  Last Sync Success:  2026-06-02T14:00:01Z
-```
+Inspect `status.phase`, `status.transitionID`, `status.targetNode`, and the
+`Ready`, `ProviderConverged`, and `OwnershipConverged` Conditions. A successful
+handoff requires exactly one reported local owner; `Degraded` and `Blocked`
+are explicit safety states, not transient log messages.
 
 ### Troubleshooting
 

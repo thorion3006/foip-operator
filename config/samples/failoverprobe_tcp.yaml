@@ -1,0 +1,14 @@
+apiVersion: foip.noshoes.xyz/v1
+kind: FailoverProbe
+metadata:
+  name: tcp-service
+spec:
+  phase: PreRoute
+  composition: All
+  type: TCP
+  target:
+    address: "${targetNodeIP}"
+    port: 443
+  timeoutSeconds: 5
+  failureThreshold: 3
+  successThreshold: 2

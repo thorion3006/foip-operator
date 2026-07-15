@@ -12,7 +12,13 @@ fullnameOverride: ""
 # - name: my-foip
 #   ip: 1.2.3.4
 #   secretName: netcup-scp-credentials
+#   providerCooldownSeconds: 60
+#   stabilizationSeconds: 30
+#   probes: []
 failoverIps: []
+
+# Reusable, ingress-neutral probes to install with the chart.
+failoverProbes: []
 
 # Additional pre-existing secrets the foip operator should be allowed to read.
 # Secrets referenced in failoverIps are included automatically.
