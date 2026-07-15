@@ -12,6 +12,7 @@ expected for changes that affect production behavior, security, or release artif
 
 For internals, controller flow, limitations, and edge cases, see [ARCHITECTURE.md](ARCHITECTURE.md).
 For the destructive v0.3.0 migration procedure, see [MIGRATION.md](MIGRATION.md).
+Release behavior and the breaking API summary are in [RELEASE_NOTES.md](RELEASE_NOTES.md).
 
 ## Fork Acknowledgement
 
