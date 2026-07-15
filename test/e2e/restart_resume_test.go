@@ -45,7 +45,11 @@ func TestPersistedStateResumesAtEveryPhase(t *testing.T) {
 				t.Fatalf("restarted status is invalid: %v", err)
 			}
 			if afterRestart.TransitionID != beforeRestart.TransitionID {
-				t.Fatalf("transition ID changed across restart: before=%q after=%q", beforeRestart.TransitionID, afterRestart.TransitionID)
+				t.Fatalf(
+					"transition ID changed across restart: before=%q after=%q",
+					beforeRestart.TransitionID,
+					afterRestart.TransitionID,
+				)
 			}
 			if afterRestart.Phase != phase {
 				t.Fatalf("phase changed across restart: before=%q after=%q", phase, afterRestart.Phase)

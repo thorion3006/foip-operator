@@ -29,7 +29,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -58,7 +58,7 @@ type FailoverIpReconciler struct {
 	client.Client
 	Scheme    *runtime.Scheme
 	APIReader client.Reader
-	Recorder  record.EventRecorder
+	Recorder  events.EventRecorder
 	Events    *observability.EventDeduper
 
 	requeueAfter time.Duration
@@ -567,7 +567,7 @@ func (r *FailoverIpReconciler) persistInvalidSpec(ctx context.Context, foip *net
 
 func (r *FailoverIpReconciler) emitEvent(foip *netcupv1.FailoverIp, eventType, reason, message string) {
 	if r.Recorder != nil && r.eventAllowed(foip, eventType, reason, message) {
-		r.Recorder.Event(foip, eventType, reason, message)
+		r.Recorder.Eventf(foip, nil, eventType, reason, "", "%s", message)
 	}
 }
 
@@ -695,7 +695,7 @@ func (r *FailoverIpReconciler) secretToFoips(ctx context.Context, obj client.Obj
 
 func (r *FailoverIpReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	r.APIReader = mgr.GetAPIReader()
-	r.Recorder = mgr.GetEventRecorderFor("foip-controller")
+	r.Recorder = mgr.GetEventRecorder("foip-controller")
 	r.Events = observability.NewEventDeduper(time.Minute)
 	r.requeueAfter = defaultRequeueTime
 	return ctrl.NewControllerManagedBy(mgr).

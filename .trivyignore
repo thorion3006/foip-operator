@@ -1,0 +1,5 @@
+# Intentional architecture exceptions:
+# - The node-interface DaemonSet must use host networking to manage the host /32.
+# - The controller must read runtime Netcup credentials from a Secret.
+KSV-0009
+KSV-0041
