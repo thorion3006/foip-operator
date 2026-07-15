@@ -24,4 +24,5 @@ jobs:
           go mod tidy
           make test
           make helm-lint
+          make version-check
           make release-readiness

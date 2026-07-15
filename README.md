@@ -19,7 +19,7 @@ exceptions, not oversights.
 
 For internals, controller flow, limitations, and edge cases, see [ARCHITECTURE.md](ARCHITECTURE.md).
 For the destructive v1.0.0 migration procedure, see [MIGRATION.md](MIGRATION.md).
-Release behavior and the breaking API summary are in the [v0.3.0...v1.0.0 release comparison](https://github.com/thorion3006/foip-operator/compare/v0.3.0...v1.0.0).
+Release behavior and the breaking API summary are in the [v1.0.0 GitHub release notes](https://github.com/thorion3006/foip-operator/releases/tag/v1.0.0).
 
 ## Fork Acknowledgement
 

@@ -104,6 +104,10 @@ helm-push: helm-package ## Package and push the Helm chart to the fork's GHCR na
 release-readiness: ## Validate rendered packaging and release workflow contracts.
 	./hack/validate-packaging.sh
 
+.PHONY: version-check
+version-check: ## Verify versioned files match VERSION.
+	./hack/verify-version-sync.sh
+
 .PHONY: sync-version
 sync-version: ## Synchronize versioned files from VERSION.
 	./hack/sync-version.sh

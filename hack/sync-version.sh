@@ -16,18 +16,13 @@ if [[ -z "$NEW_VERSION" ]]; then
   exit 1
 fi
 
-PREVIOUS_TAG=$(git -C "$ROOT" tag --list 'v*' --sort=-v:refname | awk -v current="v$NEW_VERSION" '$0 != current { print; exit }')
-if [[ -z "$PREVIOUS_TAG" ]]; then
-  PREVIOUS_TAG="v${CURRENT_VERSION:-$NEW_VERSION}"
-fi
-
 printf '%s\n' "$NEW_VERSION" > "$VERSION_FILE"
 
-perl - "$ROOT" "$NEW_VERSION" "$CURRENT_VERSION" "$PREVIOUS_TAG" <<'PERL'
+perl - "$ROOT" "$NEW_VERSION" "$CURRENT_VERSION" <<'PERL'
 use strict;
 use warnings;
 
-my ($root, $new, $old, $previous) = @ARGV;
+my ($root, $new, $old) = @ARGV;
 $old = defined($old) && length($old) ? $old : $new;
 
 sub write_if_changed {
@@ -62,7 +57,7 @@ for my $rel ('examples/helm/values-safe.yaml', 'examples/helm/values-node-health
 write_if_changed("$root/README.md", sub {
   my ($text) = @_;
   $text =~ s{For the destructive v\Q$old\E migration procedure, see \[MIGRATION\.md\]\(MIGRATION\.md\)\.}{For the destructive v$new migration procedure, see [MIGRATION.md](MIGRATION.md).};
-  $text =~ s{https://github\.com/thorion3006/foip-operator/compare/v[0-9.]+\.{3}v[0-9.]+}{https://github.com/thorion3006/foip-operator/compare/$previous...v$new};
+  $text =~ s{https://github\.com/thorion3006/foip-operator/releases/tag/v[0-9.]+}{https://github.com/thorion3006/foip-operator/releases/tag/v$new};
   $text =~ s{service\.version=\Q$old\E,foip\.component=foip}{service.version=$new,foip.component=foip};
   return $text;
 });
