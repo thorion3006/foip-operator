@@ -13,7 +13,11 @@ fullnameOverride: ""
 #   ip: 1.2.3.4
 #   secretName: netcup-scp-credentials
 #   providerCooldownSeconds: 60
+#   failureThreshold: 3
+#   recoveryThreshold: 2
 #   stabilizationSeconds: 30
+#   cleanupMaxAttempts: 15
+#   cleanupRetrySeconds: 2
 #   recoveryPolicy: HoldDualOwnership
 #   probeComposition: All
 #   probes: []

@@ -12,11 +12,32 @@ spec:
   {{- with .providerCooldownSeconds }}
   providerCooldownSeconds: {{ . }}
   {{- end }}
+  {{- with .retryBaseSeconds }}
+  retryBaseSeconds: {{ . }}
+  {{- end }}
+  {{- with .retryMaxSeconds }}
+  retryMaxSeconds: {{ . }}
+  {{- end }}
+  {{- with .failureThreshold }}
+  failureThreshold: {{ . }}
+  {{- end }}
+  {{- with .recoveryThreshold }}
+  recoveryThreshold: {{ . }}
+  {{- end }}
+  {{- with .cleanupMaxAttempts }}
+  cleanupMaxAttempts: {{ . }}
+  {{- end }}
+  {{- with .cleanupRetrySeconds }}
+  cleanupRetrySeconds: {{ . }}
+  {{- end }}
   {{- with .stabilizationSeconds }}
   stabilizationSeconds: {{ . }}
   {{- end }}
   {{- with .minHealthySeconds }}
   minHealthySeconds: {{ . }}
+  {{- end }}
+  {{- if .preferCurrentOwner }}
+  preferCurrentOwner: true
   {{- end }}
   {{- with .recoveryPolicy }}
   recoveryPolicy: {{ . }}
