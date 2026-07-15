@@ -134,6 +134,20 @@ func TestTLSProbeRejectsInvalidCABundle(t *testing.T) {
 	}
 }
 
+func TestTLSProbeHonorsCanceledContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	result := Execute(ctx, netcupv1.FailoverProbeSpec{
+		Phase:         netcupv1.ProbePhasePreRoute,
+		Type:          netcupv1.ProbeTypeTLS,
+		Target:        netcupv1.ProbeTarget{Address: "127.0.0.1", Port: 1},
+		NetworkPolicy: netcupv1.ProbeNetworkPolicy{AllowPrivateNetworks: true},
+	})
+	if result.Success {
+		t.Fatal("TLS probe succeeded with canceled context")
+	}
+}
+
 func TestHTTPProbeRejectsUnexpectedStatusAndBody(t *testing.T) {
 	server := newLoopbackServer(t, "127.0.0.1", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {

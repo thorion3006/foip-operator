@@ -79,7 +79,7 @@ func tcp(ctx context.Context, target netcupv1.ProbeTarget, tlsMode, insecure boo
 		if configErr != nil {
 			return Result{Reason: configErr.Error()}
 		}
-		conn, err = tls.DialWithDialer(dialer, "tcp", address, config) // #nosec G402 -- insecure mode is an explicit API opt-in
+		conn, err = (&tls.Dialer{NetDialer: dialer, Config: config}).DialContext(ctx, "tcp", address) // #nosec G402 -- insecure mode is an explicit API opt-in
 	} else {
 		conn, err = dialer.DialContext(ctx, "tcp", address)
 	}
