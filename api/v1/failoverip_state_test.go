@@ -57,3 +57,15 @@ func TestValidateStatusRejectsContradictoryOwnership(t *testing.T) {
 		t.Fatal("expected multiple-owner status to be rejected")
 	}
 }
+
+func FuzzValidateStatusNeverPanics(f *testing.F) {
+	f.Add("transition-1", string(FailoverPhaseSucceeded), "node-a", "node-a")
+	f.Add("", "unknown", "", "")
+	f.Fuzz(func(t *testing.T, transitionID, phase, target, owner string) {
+		status := FailoverIpStatus{TransitionID: transitionID, Phase: FailoverPhase(phase), TargetNode: target}
+		if owner != "" {
+			status.LocalOwners = []string{owner}
+		}
+		_ = ValidateStatus(status)
+	})
+}
