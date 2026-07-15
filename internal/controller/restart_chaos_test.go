@@ -159,8 +159,8 @@ func TestRestartResume_PersistsProviderCooldown(t *testing.T) {
 		Data:       map[string][]byte{"userId": []byte("42"), "refreshToken": []byte("token")},
 	}
 	node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: nodeName, Annotations: map[string]string{netcupv1.ServerIDAnnotation: "2"}}}
-	client := fake.NewClientBuilder().WithScheme(k8sClient.Scheme()).WithStatusSubresource(&netcupv1.FailoverIp{}).WithObjects(resource, secret, node).Build()
-	reconciler := &FailoverIpReconciler{Client: client, APIReader: client, Scheme: k8sClient.Scheme()}
+	fakeClient := fake.NewClientBuilder().WithScheme(k8sClient.Scheme()).WithStatusSubresource(&netcupv1.FailoverIp{}).WithObjects(resource, secret, node).Build()
+	reconciler := &FailoverIpReconciler{Client: fakeClient, APIReader: fakeClient, Scheme: k8sClient.Scheme()}
 
 	if _, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: name, Namespace: namespace}}); err != nil {
 		t.Fatalf("reconcile persisted cooldown: %v", err)
@@ -169,7 +169,7 @@ func TestRestartResume_PersistsProviderCooldown(t *testing.T) {
 		t.Fatalf("route calls during persisted cooldown = %d, want 0", fakeProvider.routeCalls)
 	}
 	var restored netcupv1.FailoverIp
-	if err := client.Get(ctx, types.NamespacedName{Name: name, Namespace: namespace}, &restored); err != nil {
+	if err := fakeClient.Get(ctx, types.NamespacedName{Name: name, Namespace: namespace}, &restored); err != nil {
 		t.Fatalf("get restored cooldown status: %v", err)
 	}
 	if restored.Status.NextEligibleMutationAt == nil {
@@ -209,10 +209,10 @@ func TestRestartResume_DoesNotDuplicateProviderMutation(t *testing.T) {
 		Data:       map[string][]byte{"userId": []byte("42"), "refreshToken": []byte("token")},
 	}
 	node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: nodeName, Annotations: map[string]string{netcupv1.ServerIDAnnotation: "2"}}}
-	client := fake.NewClientBuilder().WithScheme(k8sClient.Scheme()).WithStatusSubresource(&netcupv1.FailoverIp{}).WithObjects(resource, secret, node).Build()
+	fakeClient := fake.NewClientBuilder().WithScheme(k8sClient.Scheme()).WithStatusSubresource(&netcupv1.FailoverIp{}).WithObjects(resource, secret, node).Build()
 	request := reconcile.Request{NamespacedName: types.NamespacedName{Name: name, Namespace: namespace}}
 
-	first := &FailoverIpReconciler{Client: client, APIReader: client, Scheme: k8sClient.Scheme()}
+	first := &FailoverIpReconciler{Client: fakeClient, APIReader: fakeClient, Scheme: k8sClient.Scheme()}
 	if _, err := first.Reconcile(ctx, request); err != nil {
 		t.Fatalf("first reconcile: %v", err)
 	}
@@ -220,14 +220,14 @@ func TestRestartResume_DoesNotDuplicateProviderMutation(t *testing.T) {
 		t.Fatalf("provider mutations after first reconcile = %d, want 1", fakeProvider.routeCalls)
 	}
 	var persisted netcupv1.FailoverIp
-	if err := client.Get(ctx, request.NamespacedName, &persisted); err != nil {
+	if err := fakeClient.Get(ctx, request.NamespacedName, &persisted); err != nil {
 		t.Fatalf("get persisted phase: %v", err)
 	}
 	if persisted.Status.Phase != netcupv1.FailoverPhaseVerifyingProvider {
 		t.Fatalf("persisted phase = %q, want %q", persisted.Status.Phase, netcupv1.FailoverPhaseVerifyingProvider)
 	}
 
-	resumed := &FailoverIpReconciler{Client: client, APIReader: client, Scheme: k8sClient.Scheme()}
+	resumed := &FailoverIpReconciler{Client: fakeClient, APIReader: fakeClient, Scheme: k8sClient.Scheme()}
 	if _, err := resumed.Reconcile(ctx, request); err != nil {
 		t.Fatalf("reconcile after restart: %v", err)
 	}
@@ -445,10 +445,11 @@ func TestRestartResume_ReconcilesEveryPersistedPhase(t *testing.T) {
 
 			providerOwner := 101
 			routeTarget := 0
-			if phase == netcupv1.FailoverPhaseTargetPrepared || phase == netcupv1.FailoverPhaseRoutingProvider {
+			switch phase {
+			case netcupv1.FailoverPhaseTargetPrepared, netcupv1.FailoverPhaseRoutingProvider:
 				providerOwner = 101
 				routeTarget = 202
-			} else if phase == netcupv1.FailoverPhaseVerifyingProvider || phase == netcupv1.FailoverPhaseVerifyingTraffic || phase == netcupv1.FailoverPhaseCommitting || phase == netcupv1.FailoverPhaseCleaningStaleOwners || phase == netcupv1.FailoverPhaseSucceeded {
+			case netcupv1.FailoverPhaseVerifyingProvider, netcupv1.FailoverPhaseVerifyingTraffic, netcupv1.FailoverPhaseCommitting, netcupv1.FailoverPhaseCleaningStaleOwners, netcupv1.FailoverPhaseSucceeded:
 				providerOwner = 202
 			}
 			provider := &countingFailoverIPClient{fakeFailoverIPClient: fakeFailoverIPClient{findFOIPID: 17, serverID: providerOwner, routeTarget: routeTarget}}
