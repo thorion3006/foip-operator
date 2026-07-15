@@ -138,6 +138,19 @@ Set `spec.recoveryPolicy` to `HoldDualOwnership` (the safe default),
 `RollbackProvider`, `CommitDegraded`, or `ManualIntervention` to choose the
 post-route probe failure behavior.
 
+`FailoverProbe` resources are optional and ingress-neutral. Use `TCP`, `TLS`,
+`HTTP`, `HTTPS`, or `Kubernetes` probes with `All`, `Any`, or quorum
+composition. Network targets may use `${targetNodeIP}` or `${failoverIP}`;
+explicit DNS names are also supported. TLS/HTTPS probes use certificate
+verification by default and may reference a PEM CA bundle through
+`spec.caBundleSecretRef`.
+
+Provider cooldown, candidate hysteresis, and stale-owner cleanup are persisted
+in `FailoverIp` status. Tune `failureThreshold`, `recoveryThreshold`,
+`cleanupMaxAttempts`, and `cleanupRetrySeconds` only when the default safety
+budget is unsuitable; cleanup becomes `Degraded` when its bounded budget is
+exhausted.
+
 After correcting a blocked/degraded cause, request one controlled retry by
 changing the reconciliation token:
 
