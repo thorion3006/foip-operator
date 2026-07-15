@@ -28,7 +28,11 @@ func evaluateProbePhase(ctx context.Context, reader client.Reader, foip netcupv1
 			composition = resource.Spec.Composition
 			quorum = resource.Spec.Quorum
 		}
-		results = append(results, probe.Execute(ctx, resource.Spec))
+		if resource.Spec.Type == netcupv1.ProbeTypeKubernetes {
+			results = append(results, probe.ExecuteKubernetes(ctx, reader, resource.Spec.Kubernetes))
+		} else {
+			results = append(results, probe.Execute(ctx, resource.Spec))
+		}
 	}
 	if len(results) == 0 {
 		return nil
