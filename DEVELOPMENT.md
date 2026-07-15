@@ -61,10 +61,14 @@ Build the operator image using the fork default:
 make docker-build
 ```
 
+The release image tag and Helm chart version are read from the root `VERSION`
+file, so a future version bump only needs one canonical edit plus the sync
+command below.
+
 The default image is:
 
 ```text
-ghcr.io/thorion3006/foip-operator/operator:0.3.0
+ghcr.io/thorion3006/foip-operator/operator:<version>
 ```
 
 ## Observability
@@ -93,7 +97,7 @@ For a product-neutral deployment, scrape `/metrics` with Prometheus (or a
 compatible collector), send OTLP traces to any OpenTelemetry Collector, and
 route the two example expressions to the alerting system of your choice.
 
-Package and publish Helm chart version `0.3.0`:
+Package and publish the Helm chart using the version from `VERSION`:
 
 ```bash
 make helm-package
@@ -110,7 +114,7 @@ All release defaults can still be overridden per invocation:
 
 ```bash
 make docker-build IMG=ghcr.io/example/foip-operator:test
-make helm-package CHART_VERSION=0.3.0
+make helm-package CHART_VERSION=<version>
 make helm-push HELM_OCI_REPOSITORY=oci://ghcr.io/example
 ```
 

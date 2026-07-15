@@ -1,5 +1,6 @@
 # Image URL to use all building/pushing image targets
-IMG ?= ghcr.io/thorion3006/foip-operator/operator:1.0.0
+RELEASE_VERSION ?= $(shell cat VERSION 2>/dev/null || echo unknown)
+IMG ?= ghcr.io/thorion3006/foip-operator/operator:$(RELEASE_VERSION)
 
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
@@ -83,7 +84,7 @@ lint-config: golangci-lint ## Verify golangci-lint linter configuration
 ##@ Helm
 
 HELM ?= helm
-CHART_VERSION ?= 1.0.0
+CHART_VERSION ?= $(RELEASE_VERSION)
 HELM_OCI_REPOSITORY ?= oci://ghcr.io/thorion3006
 
 .PHONY: helm-lint
@@ -102,6 +103,15 @@ helm-push: helm-package ## Package and push the Helm chart to the fork's GHCR na
 .PHONY: release-readiness
 release-readiness: ## Validate rendered packaging and release workflow contracts.
 	./hack/validate-packaging.sh
+
+.PHONY: sync-version
+sync-version: ## Synchronize versioned files from VERSION.
+	./hack/sync-version.sh
+
+.PHONY: bump-version
+bump-version: ## Set NEW_VERSION=... and synchronize versioned files.
+	@test -n "$(NEW_VERSION)" || { echo "Set NEW_VERSION=<x.y.z>" >&2; exit 1; }
+	./hack/sync-version.sh "$(NEW_VERSION)"
 
 ##@ Build
 
@@ -122,7 +132,7 @@ run-node-interface: manifests generate fmt vet ## Run the node-interface control
 .PHONY: docker-build
 docker-build: ## Build docker image with the manager.
 	$(PODMAN_ENV_PREFIX) $(CONTAINER_TOOL) build $(PODMAN_TIMESTAMP_FLAG) \
-		--build-arg VERSION=$(VERSION) \
+		--build-arg VERSION=$(GIT_VERSION) \
 		--build-arg VCS_REF=$(VCS_REF) \
 		--build-arg BUILD_DATE=$(BUILD_DATE) \
 		-t ${IMG} .
@@ -130,7 +140,7 @@ docker-build: ## Build docker image with the manager.
 .PHONY: docker-build-e2e
 docker-build-e2e: ## Build the manager image with the deterministic E2E fake provider.
 	$(PODMAN_ENV_PREFIX) $(CONTAINER_TOOL) build --target e2e $(PODMAN_TIMESTAMP_FLAG) \
-		--build-arg VERSION=$(VERSION) \
+		--build-arg VERSION=$(GIT_VERSION) \
 		--build-arg VCS_REF=$(VCS_REF) \
 		--build-arg BUILD_DATE=$(BUILD_DATE) \
 		-t ${IMG} .
@@ -140,7 +150,7 @@ docker-push: ## Push docker image with the manager.
 	$(CONTAINER_TOOL) push ${IMG}
 
 PLATFORMS ?= linux/arm64,linux/amd64,linux/s390x,linux/ppc64le
-VERSION ?= $(shell git describe --tags --dirty --always 2>/dev/null || echo unknown)
+GIT_VERSION ?= $(shell git describe --tags --dirty --always 2>/dev/null || echo unknown)
 VCS_REF ?= $(shell git rev-parse HEAD 2>/dev/null || echo unknown)
 BUILD_TIMESTAMP ?= $(shell git show -s --no-show-signature --format=%ct HEAD 2>/dev/null || date +%s)
 BUILD_DATE ?= $(shell date -u -d "@$(BUILD_TIMESTAMP)" +%Y-%m-%dT%H:%M:%SZ)
@@ -152,7 +162,7 @@ docker-buildx: ## Build and push docker image for the manager for cross-platform
 	- $(PODMAN_ENV_PREFIX) $(CONTAINER_TOOL) buildx create --name foip-operator-builder
 	$(PODMAN_ENV_PREFIX) $(CONTAINER_TOOL) buildx use foip-operator-builder
 	- $(PODMAN_ENV_PREFIX) $(CONTAINER_TOOL) buildx build $(PODMAN_TIMESTAMP_FLAG) \
-		--build-arg VERSION=$(VERSION) \
+		--build-arg VERSION=$(GIT_VERSION) \
 		--build-arg VCS_REF=$(VCS_REF) \
 		--build-arg BUILD_DATE=$(BUILD_DATE) \
 		--push --platform=$(PLATFORMS) --tag ${IMG} -f Dockerfile.cross .

@@ -5,6 +5,7 @@ ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 CHART="$ROOT/charts/foip-operator"
 FIXTURE="$ROOT/examples/helm/values-safe.yaml"
 NODE_HEALTH_FIXTURE="$ROOT/examples/helm/values-node-health-only.yaml"
+RELEASE_VERSION=$(tr -d '[:space:]' < "$ROOT/VERSION")
 CHART_VERSION=$(awk -F': *' '/^version: / { print $2; exit }' "$CHART/Chart.yaml")
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
@@ -18,8 +19,9 @@ echo "== Render default and safe example values =="
 helm template smoke "$CHART" > "$TMP/default.yaml"
 helm template smoke "$CHART" -f "$FIXTURE" > "$TMP/safe.yaml"
 helm template smoke "$CHART" -f "$NODE_HEALTH_FIXTURE" > "$TMP/node-health-only.yaml"
-helm package "$CHART" --version "$CHART_VERSION" --app-version "$CHART_VERSION" --destination "$TMP" >/dev/null
-test -s "$TMP/foip-operator-$CHART_VERSION.tgz"
+test "$RELEASE_VERSION" = "$CHART_VERSION"
+helm package "$CHART" --version "$RELEASE_VERSION" --app-version "$RELEASE_VERSION" --destination "$TMP" >/dev/null
+test -s "$TMP/foip-operator-$RELEASE_VERSION.tgz"
 
 assert_contains() {
   local file=$1
@@ -92,12 +94,12 @@ assert_contains "$TMP/safe.yaml" "probe-credentials"
 # the actual registry digest and architecture check runs in the release job.
 WORKFLOW="$ROOT/.github/workflows/release.yml"
 assert_contains "$WORKFLOW" "./hack/validate-packaging.sh"
+assert_contains "$WORKFLOW" "helm package charts/foip-operator"
 assert_contains "$WORKFLOW" "--annotation \"index:org.opencontainers.image.source=https://github.com/thorion3006/foip-operator\""
 assert_contains "$WORKFLOW" '--annotation "index:org.opencontainers.image.version=${{ needs.prepare.outputs.version }}"'
 assert_contains "$WORKFLOW" "Verify published image architectures"
 assert_contains "$WORKFLOW" "platform.architecture == \"amd64\""
 assert_contains "$WORKFLOW" "platform.architecture == \"arm64\""
-assert_contains "$WORKFLOW" "helm package charts/foip-operator"
 assert_contains "$WORKFLOW" 'helm push dist/foip-operator-${{ needs.prepare.outputs.version }}.tgz'
 
 echo "Packaging and release readiness checks passed"
