@@ -18,7 +18,7 @@ runtime Netcup credentials from a Kubernetes Secret. These are deliberate
 exceptions, not oversights.
 
 For internals, controller flow, limitations, and edge cases, see [ARCHITECTURE.md](ARCHITECTURE.md).
-Release behavior and the breaking API summary are in the [v1.0.1 GitHub release notes](https://github.com/thorion3006/foip-operator/releases/tag/v1.0.1).
+Release behavior and the breaking API summary are in the [v1.1.0 GitHub release notes](https://github.com/thorion3006/foip-operator/releases/tag/v1.1.0).
 
 ## Fork Acknowledgement
 
@@ -212,7 +212,7 @@ from your deployment tooling and the binaries will export spans automatically:
 ```sh
 OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector.observability:4317
 OTEL_SERVICE_NAME=foip-operator-foip
-OTEL_RESOURCE_ATTRIBUTES=service.version=1.0.1,foip.component=foip
+OTEL_RESOURCE_ATTRIBUTES=service.version=1.1.0,foip.component=foip
 ```
 
 The Helm chart wires the service name and resource attributes by default for both

@@ -2,7 +2,7 @@
 # still selects only eligible, healthy Kubernetes nodes.
 image:
   repository: ghcr.io/thorion3006/foip-operator/operator
-  tag: "1.0.1"
+  tag: "1.1.0"
   pullPolicy: IfNotPresent
 
 failoverIps:
