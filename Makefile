@@ -54,20 +54,22 @@ test: manifests generate fmt vet setup-envtest ## Run tests with a real envtest 
 	KUBEBUILDER_ASSETS="$$assets" go test $$(go list ./... | grep -v /e2e) -coverprofile cover.out
 
 KIND_CLUSTER ?= foip-operator-test-e2e
+KIND_PROVIDER ?= $(if $(filter rootless-podman podman,$(CONTAINER_TOOL)),podman,docker)
 
 .PHONY: setup-test-e2e
 setup-test-e2e: ## Set up a Kind cluster for e2e tests if it does not exist
 	@command -v $(KIND) >/dev/null 2>&1 || { echo "Kind is not installed. Please install Kind manually."; exit 1; }
-	@case "$$($(KIND) get clusters)" in *"$(KIND_CLUSTER)"*) echo "Kind cluster '$(KIND_CLUSTER)' already exists. Skipping creation." ;; *) echo "Creating Kind cluster '$(KIND_CLUSTER)'..."; $(KIND) create cluster --name $(KIND_CLUSTER) ;; esac
+	@case "$$(KIND_EXPERIMENTAL_PROVIDER=$(KIND_PROVIDER) $(KIND) get clusters)" in *"$(KIND_CLUSTER)"*) echo "Kind cluster '$(KIND_CLUSTER)' already exists. Skipping creation." ;; *) echo "Creating Kind cluster '$(KIND_CLUSTER)' with $(KIND_PROVIDER)..."; KIND_EXPERIMENTAL_PROVIDER=$(KIND_PROVIDER) $(KIND) create cluster --name $(KIND_CLUSTER) ;; esac
 
 .PHONY: test-e2e
 test-e2e: setup-test-e2e manifests generate fmt vet ## Run the e2e tests.
-	KIND=$(KIND) KIND_CLUSTER=$(KIND_CLUSTER) go test -tags=e2e ./test/e2e/ -v -ginkgo.v
-	$(MAKE) cleanup-test-e2e
+	trap '$(MAKE) cleanup-test-e2e' EXIT; \
+	CONTAINER_TOOL=$(CONTAINER_TOOL) KIND=$(KIND) KIND_CLUSTER=$(KIND_CLUSTER) KIND_EXPERIMENTAL_PROVIDER=$(KIND_PROVIDER) \
+	go test -tags=e2e ./test/e2e/ -v -ginkgo.v
 
 .PHONY: cleanup-test-e2e
 cleanup-test-e2e: ## Tear down the Kind cluster used for e2e tests
-	@$(KIND) delete cluster --name $(KIND_CLUSTER)
+	@KIND_EXPERIMENTAL_PROVIDER=$(KIND_PROVIDER) $(KIND) delete cluster --name $(KIND_CLUSTER)
 
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint linter

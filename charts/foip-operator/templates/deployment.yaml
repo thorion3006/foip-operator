@@ -36,14 +36,19 @@ spec:
         image: {{ include "foip-operator.image" . }}
         imagePullPolicy: {{ .Values.image.pullPolicy }}
         command: [/foip]
+        env:
+          - name: WATCH_NAMESPACE
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: metadata.namespace
+{{- if and .Values.observability.traces.enabled .Values.observability.otlp.endpoint }}
+{{ include "foip-operator.observabilityEnv" (dict "root" . "component" "foip") | nindent 10 }}
+{{- end }}
         args:
           - --leader-elect
           - --health-probe-bind-address=:8081
           - --metrics-bind-address={{ include "foip-operator.metricsBindAddress" . }}
-        {{- if and .Values.observability.traces.enabled .Values.observability.otlp.endpoint }}
-        env:
-{{ include "foip-operator.observabilityEnv" (dict "root" . "component" "foip") | nindent 10 }}
-        {{- end }}
         securityContext:
           {{- toYaml .Values.controller.securityContext | nindent 10 }}
         livenessProbe:

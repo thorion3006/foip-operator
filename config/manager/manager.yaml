@@ -60,14 +60,19 @@ spec:
       containers:
       - command:
         - /foip
-        args:
-          - --leader-elect
-          - --health-probe-bind-address=:8081
         env:
+        - name: WATCH_NAMESPACE
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: metadata.namespace
         - name: OTEL_SERVICE_NAME
           value: foip-operator-foip
         - name: OTEL_RESOURCE_ATTRIBUTES
           value: service.name=foip-operator-foip,service.namespace=foip-operator-system,k8s.namespace.name=foip-operator-system,foip.component=foip
+        args:
+          - --leader-elect
+          - --health-probe-bind-address=:8081
         image: controller:latest
         name: controller
         ports: []

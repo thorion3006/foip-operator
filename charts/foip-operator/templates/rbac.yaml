@@ -84,11 +84,15 @@ rules:
 {{- end }}
 {{- end }}
 {{- $secretNames = concat $secretNames .Values.existingSecrets | uniq }}
+- apiGroups: [""]
+  resources: [secrets]
+  verbs: [list, watch]
 {{- if $secretNames }}
 - apiGroups: [""]
   resources: [secrets]
   resourceNames: {{- toYaml $secretNames | nindent 4 }}
   verbs: [get]
+{{- end }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -104,7 +108,6 @@ subjects:
 - kind: ServiceAccount
   name: {{ include "foip-operator.controller.serviceAccountName" . }}
   namespace: {{ .Release.Namespace }}
-{{- end }}
 {{- end }}
 {{- if .Values.nodeInterface.serviceAccount.create }}
 ---
