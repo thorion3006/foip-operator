@@ -1,5 +1,5 @@
 # Build both controller binaries
-FROM docker.io/library/golang:1.26 AS builder
+FROM docker.io/library/golang:1.27 AS builder
 ARG TARGETOS
 ARG TARGETARCH
 ARG VERSION=unknown
@@ -16,17 +16,17 @@ COPY . .
 RUN --mount=type=cache,target=/go/pkg/mod \
 	--mount=type=cache,target=/root/.cache/go-build \
 	CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} \
-	go build -trimpath -ldflags="-s -w" -a -o foip ./cmd/foip/
+	go build -trimpath -ldflags="-s -w" -o foip ./cmd/foip/
 RUN --mount=type=cache,target=/go/pkg/mod \
 	--mount=type=cache,target=/root/.cache/go-build \
 	CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} \
-	go build -trimpath -ldflags="-s -w" -a -o node-interface ./cmd/node-interface/
+	go build -trimpath -ldflags="-s -w" -o node-interface ./cmd/node-interface/
 
 FROM builder AS e2e-builder
 RUN --mount=type=cache,target=/go/pkg/mod \
 	--mount=type=cache,target=/root/.cache/go-build \
 	CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} \
-	go build -tags=e2e -trimpath -ldflags="-s -w" -a -o fake-provider ./cmd/fake-provider/
+	go build -tags=e2e -trimpath -ldflags="-s -w" -o fake-provider ./cmd/fake-provider/
 
 # Minimal runtime image with both binaries.
 # The Deployment runs /foip; the DaemonSet runs /node-interface (set via pod spec command).

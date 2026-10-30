@@ -12,7 +12,7 @@ nix develop
 
 The shell includes:
 
-- Go 1.26
+- Go 1.27
 - `gopls` and Go tools
 - `golangci-lint`
 - `kubectl`
