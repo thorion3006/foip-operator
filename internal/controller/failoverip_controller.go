@@ -187,7 +187,15 @@ func (r *FailoverIpReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("findFailoverIP: %w", err)
 	}
-	if err := validateProviderFence(foip.Status, strconv.Itoa(currentServerID)); err != nil {
+	var nodeList corev1.NodeList
+	if err := r.List(ctx, &nodeList); err != nil {
+		return ctrl.Result{}, err
+	}
+	// The provider owner moving to the persisted target is the one expected
+	// change; the fence must allow it, or a restart between routing and
+	// verification would block an in-flight handoff.
+	expectedOwner := serverIDForNode(nodeList.Items, foip.Status.TargetNode)
+	if err := validateProviderFence(foip.Status, strconv.Itoa(currentServerID), expectedOwner); err != nil {
 		patch := client.MergeFrom(foip.DeepCopy())
 		foip.Status.Phase = netcupv1.FailoverPhaseBlocked
 		foip.Status.LastError = err.Error()
@@ -201,10 +209,6 @@ func (r *FailoverIpReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	// The node agents decide ownership from the persisted status, so both the
 	// observed owner and an adopted target must be written before anyone waits
 	// on LocalOwners to advance.
-	var nodeList corev1.NodeList
-	if err := r.List(ctx, &nodeList); err != nil {
-		return ctrl.Result{}, err
-	}
 	adoptionBase := foip.DeepCopy()
 	adoptedNode := ""
 	foip.Status.ProviderObservedOwner = strconv.Itoa(currentServerID)

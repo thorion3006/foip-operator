@@ -276,6 +276,121 @@ func TestFailoverIpReconciler_PersistsAdoptionOfCurrentProviderOwner(t *testing.
 	}
 }
 
+func TestFailoverIpReconciler_ConvergesInFlightRoutingAfterRestart(t *testing.T) {
+	t.Helper()
+
+	const (
+		resourceName = "inflight-routing-resource"
+		namespace    = "default"
+		nodeName     = "node-1"
+		secretName   = "netcup-scp-credentials"
+		failoverIP   = "1.2.3.4"
+		serverID     = "12345"
+		macAddress   = "de:ad:be:ef:00:01"
+	)
+
+	ctx := context.Background()
+	// The provider already routed the IP to the target server, but the
+	// persisted status still records the previous owner: the controller died
+	// between the routing call and its verification.
+	fakeClient := &fakeFailoverIPClient{findFOIPID: 17, serverID: 12345}
+	originalNewFailoverIPClient := newFailoverIPClient
+	newFailoverIPClient = func(int, string) failoverIPClient {
+		return fakeClient
+	}
+	t.Cleanup(func() {
+		newFailoverIPClient = originalNewFailoverIPClient
+	})
+
+	resource := &netcupv1.FailoverIp{
+		Name:      resourceName,
+		Namespace: namespace,
+		Spec: netcupv1.FailoverIpSpec{
+			IP:         failoverIP,
+			SecretName: secretName,
+		},
+		Status: netcupv1.FailoverIpStatus{
+			TransitionID:          "transition-inflight",
+			Phase:                 netcupv1.FailoverPhaseRoutingProvider,
+			TargetNode:            nodeName,
+			LocalOwners:           []string{nodeName},
+			ProviderObservedOwner: "999",
+		},
+	}
+	initialStatus := resource.Status.DeepCopy()
+	if err := k8sClient.Create(ctx, resource); err != nil {
+		t.Fatalf("create failoverip: %v", err)
+	}
+	var seeded netcupv1.FailoverIp
+	if err := k8sClient.Get(ctx, types.NamespacedName{Name: resourceName, Namespace: namespace}, &seeded); err != nil {
+		t.Fatalf("get created failoverip: %v", err)
+	}
+	seeded.Status = *initialStatus
+	if err := k8sClient.Status().Update(ctx, &seeded); err != nil {
+		t.Fatalf("persist initial status: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = k8sClient.Delete(ctx, &netcupv1.FailoverIp{Name: resourceName, Namespace: namespace})
+	})
+
+	secret := &corev1.Secret{
+		Name:      secretName,
+		Namespace: namespace,
+		Data: map[string][]byte{
+			"userId":       []byte("42"),
+			"refreshToken": []byte("refresh-token"),
+		},
+	}
+	if err := k8sClient.Create(ctx, secret); err != nil {
+		t.Fatalf("create secret: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = k8sClient.Delete(ctx, &corev1.Secret{Name: secretName, Namespace: namespace})
+	})
+
+	node := &corev1.Node{
+		Name: nodeName,
+		Annotations: map[string]string{
+			netcupv1.ServerIDAnnotation: serverID,
+			netcupv1.MACAnnotation:      macAddress,
+		},
+		Status: corev1.NodeStatus{Conditions: []corev1.NodeCondition{{Type: corev1.NodeReady, Status: corev1.ConditionTrue}}},
+	}
+	if err := k8sClient.Create(ctx, node); err != nil {
+		t.Fatalf("create node: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = k8sClient.Delete(ctx, &corev1.Node{Name: nodeName})
+	})
+
+	controllerReconciler := &FailoverIpReconciler{
+		Client:    k8sClient,
+		APIReader: k8sClient,
+		Scheme:    k8sClient.Scheme(),
+	}
+
+	if _, err := controllerReconciler.Reconcile(ctx, reconcile.Request{Name: resourceName, Namespace: namespace}); err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+
+	var persisted netcupv1.FailoverIp
+	if err := k8sClient.Get(ctx, types.NamespacedName{Name: resourceName, Namespace: namespace}, &persisted); err != nil {
+		t.Fatalf("get failoverip: %v", err)
+	}
+	if persisted.Status.Phase == netcupv1.FailoverPhaseBlocked {
+		t.Fatal("in-flight routing to the persisted target must not be fenced as out of band")
+	}
+	if persisted.Status.Phase != netcupv1.FailoverPhaseVerifyingProvider {
+		t.Fatalf("phase = %q, want %q", persisted.Status.Phase, netcupv1.FailoverPhaseVerifyingProvider)
+	}
+	if persisted.Status.ProviderObservedOwner != serverID {
+		t.Fatalf("providerObservedOwner = %q, want %q", persisted.Status.ProviderObservedOwner, serverID)
+	}
+	if fakeClient.routeCalled {
+		t.Fatal("route client must not be called again when the provider already reports the target owner")
+	}
+}
+
 func TestFailoverIpReconciler_CompletesMakeBeforeBreakHandoff(t *testing.T) {
 	t.Helper()
 
