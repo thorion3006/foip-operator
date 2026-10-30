@@ -16,7 +16,11 @@ import (
 	netcupv1 "github.com/thorion3006/foip-operator/api/v1"
 )
 
-const maxResponseBody = 1 << 20
+const (
+	maxResponseBody = 1 << 20
+
+	reasonInvalidRequest = "invalid request"
+)
 
 // Result is intentionally bounded and contains no request headers or body.
 type Result struct {
@@ -108,13 +112,13 @@ func httpProbe(ctx context.Context, spec netcupv1.FailoverProbeSpec, credential 
 	port := spec.Target.Port
 	if parsed, err := url.Parse(spec.Target.Address); err == nil && parsed.Scheme != "" {
 		if parsed.Scheme != scheme || parsed.Hostname() == "" || parsed.User != nil {
-			return Result{Reason: "invalid request"}
+			return Result{Reason: reasonInvalidRequest}
 		}
 		host = parsed.Hostname()
 		if port == 0 && parsed.Port() != "" {
 			parsedPort, parseErr := strconv.Atoi(parsed.Port())
 			if parseErr != nil {
-				return Result{Reason: "invalid request"}
+				return Result{Reason: reasonInvalidRequest}
 			}
 			port = int32(parsedPort)
 		}
@@ -132,7 +136,7 @@ func httpProbe(ctx context.Context, spec netcupv1.FailoverProbeSpec, credential 
 	}
 	req, err := http.NewRequestWithContext(ctx, method, requestURL, nil)
 	if err != nil {
-		return Result{Reason: "invalid request"}
+		return Result{Reason: reasonInvalidRequest}
 	}
 	if spec.Target.Host != "" {
 		req.Host = spec.Target.Host
@@ -154,6 +158,7 @@ func httpProbe(ctx context.Context, spec netcupv1.FailoverProbeSpec, credential 
 	transport := &http.Transport{TLSClientConfig: config, DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
 		return dialAllowedContext(ctx, network, address, spec.NetworkPolicy)
 	}} // #nosec G402 -- insecure mode is an explicit API opt-in
+	defer transport.CloseIdleConnections()
 	if !spec.FollowRedirects {
 		transport.DisableKeepAlives = true
 	}
