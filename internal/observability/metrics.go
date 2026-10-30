@@ -27,90 +27,107 @@ import (
 
 var registerMetricsOnce sync.Once
 
+// Metric names and label keys are constants so a typo cannot silently split a
+// series or invent a new label at a call site.
+const (
+	metricNamespace = "foip"
+
+	subsystemController = "controller"
+	subsystemProvider   = "provider"
+	subsystemInterface  = "interface"
+	subsystemFailover   = "failover"
+
+	labelController = "controller"
+	labelProvider   = "provider"
+	labelOperation  = "operation"
+	labelResult     = "result"
+	labelPhase      = "phase"
+)
+
 var (
 	reconcileTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
-		Namespace: "foip",
-		Subsystem: "controller",
+		Namespace: metricNamespace,
+		Subsystem: subsystemController,
 		Name:      "reconcile_total",
 		Help:      "Total number of controller reconciliations by outcome",
-	}, []string{"controller", "result"})
+	}, []string{labelController, labelResult})
 	reconcileDuration = prometheus.NewHistogramVec(prometheus.HistogramOpts{
-		Namespace: "foip",
-		Subsystem: "controller",
+		Namespace: metricNamespace,
+		Subsystem: subsystemController,
 		Name:      "reconcile_duration_seconds",
 		Help:      "Reconcile duration in seconds by controller and result",
 		Buckets:   prometheus.ExponentialBuckets(0.005, 2, 14),
-	}, []string{"controller", "result"})
+	}, []string{labelController, labelResult})
 	providerTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
-		Namespace: "foip",
-		Subsystem: "provider",
+		Namespace: metricNamespace,
+		Subsystem: subsystemProvider,
 		Name:      "request_total",
 		Help:      "Total number of provider requests by outcome",
-	}, []string{"provider", "operation", "result"})
+	}, []string{labelProvider, labelOperation, labelResult})
 	providerDuration = prometheus.NewHistogramVec(prometheus.HistogramOpts{
-		Namespace: "foip",
-		Subsystem: "provider",
+		Namespace: metricNamespace,
+		Subsystem: subsystemProvider,
 		Name:      "request_duration_seconds",
 		Help:      "Provider request duration in seconds",
 		Buckets:   prometheus.ExponentialBuckets(0.005, 2, 14),
-	}, []string{"provider", "operation"})
+	}, []string{labelProvider, labelOperation})
 	interfaceTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
-		Namespace: "foip",
-		Subsystem: "interface",
+		Namespace: metricNamespace,
+		Subsystem: subsystemInterface,
 		Name:      "operation_total",
 		Help:      "Total number of local interface operations by outcome",
-	}, []string{"controller", "operation", "result"})
+	}, []string{labelController, labelOperation, labelResult})
 	interfaceDuration = prometheus.NewHistogramVec(prometheus.HistogramOpts{
-		Namespace: "foip",
-		Subsystem: "interface",
+		Namespace: metricNamespace,
+		Subsystem: subsystemInterface,
 		Name:      "operation_duration_seconds",
 		Help:      "Local interface operation duration in seconds",
 		Buckets:   prometheus.ExponentialBuckets(0.005, 2, 14),
-	}, []string{"controller", "operation"})
+	}, []string{labelController, labelOperation})
 	handoffDuration = prometheus.NewHistogram(prometheus.HistogramOpts{
-		Namespace: "foip",
-		Subsystem: "failover",
+		Namespace: metricNamespace,
+		Subsystem: subsystemFailover,
 		Name:      "handoff_duration_seconds",
 		Help:      "Time spent completing a make-before-break failover handoff",
 		Buckets:   prometheus.ExponentialBuckets(0.01, 2, 16),
 	})
 	phaseDuration = prometheus.NewHistogramVec(prometheus.HistogramOpts{
-		Namespace: "foip",
-		Subsystem: "failover",
+		Namespace: metricNamespace,
+		Subsystem: subsystemFailover,
 		Name:      "phase_duration_seconds",
 		Help:      "Time spent in a persisted failover phase",
 		Buckets:   prometheus.ExponentialBuckets(0.01, 2, 16),
-	}, []string{"phase"})
+	}, []string{labelPhase})
 	phaseTransitions = prometheus.NewCounterVec(prometheus.CounterOpts{
-		Namespace: "foip",
-		Subsystem: "failover",
+		Namespace: metricNamespace,
+		Subsystem: subsystemFailover,
 		Name:      "phase_transition_total",
 		Help:      "Persisted failover phase transitions",
 	}, []string{"from", "to"})
 	cooldownBlocks = prometheus.NewCounter(prometheus.CounterOpts{
-		Namespace: "foip",
-		Subsystem: "provider",
+		Namespace: metricNamespace,
+		Subsystem: subsystemProvider,
 		Name:      "cooldown_block_total",
 		Help:      "Provider mutations blocked by cooldown",
 	})
 	recoveryActions = prometheus.NewCounterVec(prometheus.CounterOpts{
-		Namespace: "foip",
-		Subsystem: "failover",
+		Namespace: metricNamespace,
+		Subsystem: subsystemFailover,
 		Name:      "recovery_action_total",
 		Help:      "Post-route recovery actions by policy",
 	}, []string{"policy"})
 	ownerCount = prometheus.NewGaugeVec(prometheus.GaugeOpts{
-		Namespace: "foip",
-		Subsystem: "failover",
+		Namespace: metricNamespace,
+		Subsystem: subsystemFailover,
 		Name:      "local_owner_count",
 		Help:      "Observed local failover IP owner count",
-	}, []string{"phase"})
+	}, []string{labelPhase})
 	phaseState = prometheus.NewGaugeVec(prometheus.GaugeOpts{
-		Namespace: "foip",
-		Subsystem: "failover",
+		Namespace: metricNamespace,
+		Subsystem: subsystemFailover,
 		Name:      "phase",
 		Help:      "Current persisted failover phase (one for the current phase, zero otherwise)",
-	}, []string{"phase"})
+	}, []string{labelPhase})
 )
 
 func init() {
