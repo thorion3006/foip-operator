@@ -278,6 +278,13 @@ spec:
 
 			// +kubebuilder:scaffold:e2e-metrics-webhooks-readiness
 
+			// The default deploy ships a NetworkPolicy that admits :8443
+			// scrapes only from namespaces labeled metrics: enabled.
+			By("labeling the namespace so the network policy admits the scrape")
+			cmd = exec.Command("kubectl", "label", "namespace", namespace, "metrics=enabled", "--overwrite")
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to label namespace for metrics scraping")
+
 			By("creating the curl-metrics pod to access the metrics endpoint")
 			cmd = exec.Command("kubectl", "run", "curl-metrics", "--restart=Never",
 				"--namespace", namespace,
