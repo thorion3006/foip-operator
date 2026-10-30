@@ -86,6 +86,15 @@ assert_contains "$TMP/default.yaml" "- NET_ADMIN"
 assert_contains "$TMP/default.yaml" "limits:"
 assert_contains "$TMP/default.yaml" "resources:"
 assert_not_contains "$TMP/default.yaml" ":latest"
+
+# The node-interface agent patches FailoverIp status (localOwners); without the
+# status subresource rule every Helm install fails those patches with 403 and
+# failover stalls at the target-prepared gate. The ClusterRole is the first
+# rendered object carrying the node-interface name.
+grep -m1 -A40 'name: .*-node-interface$' "$TMP/default.yaml" | grep -Fq 'failoverips/status' || {
+  echo "node-interface ClusterRole must grant failoverips/status" >&2
+  exit 1
+}
 assert_contains "$TMP/safe.yaml" "resourceNames:"
 assert_contains "$TMP/safe.yaml" "netcup-scp-credentials"
 assert_contains "$TMP/safe.yaml" "probe-credentials"

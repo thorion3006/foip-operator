@@ -80,7 +80,15 @@ nodeInterface:
     capabilities:
       drop: [ALL]
       add: [NET_ADMIN]
-  resources: {}
+  # Requests keep the per-node agent off BestEffort QoS so node pressure does
+  # not evict the process holding the /32 during a handoff.
+  resources:
+    limits:
+      cpu: 500m
+      memory: 128Mi
+    requests:
+      cpu: 10m
+      memory: 64Mi
   nodeSelector: {}
   tolerations: []
   affinity: {}
