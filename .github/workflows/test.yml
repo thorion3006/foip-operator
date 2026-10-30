@@ -6,6 +6,9 @@ on:
       - '**'
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   test:
     name: Run on Ubuntu
@@ -26,3 +29,8 @@ jobs:
           make helm-lint
           make version-check
           make release-readiness
+
+      - name: Check for uncommitted changes
+        run: |
+          git diff --exit-code -- go.mod go.sum config/ api/ internal/
+          git diff --exit-code -- charts/foip-operator
