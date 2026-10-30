@@ -1,6 +1,9 @@
 # This NetworkPolicy allows ingress traffic
 # with Pods running on namespaces labeled with 'metrics: enabled'. Only Pods on those
 # namespaces are able to gather data from the metrics endpoint.
+# Kubelet health probes reach the manager on the health port straight from the
+# node, so that port is opened to all sources; it only serves /healthz and
+# /readyz.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -24,4 +27,13 @@ spec:
             metrics: enabled  # Only from namespaces with this label
       ports:
         - port: 8443
+          protocol: TCP
+    # Health probes are sent by the kubelet from the node itself, which no
+    # namespaceSelector can match; without this rule a policy-enabled cluster
+    # would fail the liveness and readiness probes on :8081.
+    - from:
+      - ipBlock:
+          cidr: 0.0.0.0/0
+      ports:
+        - port: 8081
           protocol: TCP
