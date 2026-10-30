@@ -74,10 +74,8 @@ func TestFailoverIpReconciler_SelectsNodeAndUpdatesStatus(t *testing.T) {
 	})
 
 	resource := &netcupv1.FailoverIp{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      resourceName,
-			Namespace: namespace,
-		},
+		Name:      resourceName,
+		Namespace: namespace,
 		Spec: netcupv1.FailoverIpSpec{
 			IP:               failoverIP,
 			SecretName:       secretName,
@@ -89,15 +87,13 @@ func TestFailoverIpReconciler_SelectsNodeAndUpdatesStatus(t *testing.T) {
 	}
 	t.Cleanup(func() {
 		_ = k8sClient.Delete(ctx, &netcupv1.FailoverIp{
-			ObjectMeta: metav1.ObjectMeta{Name: resourceName, Namespace: namespace},
+			Name: resourceName, Namespace: namespace,
 		})
 	})
 
 	secret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      secretName,
-			Namespace: namespace,
-		},
+		Name:      secretName,
+		Namespace: namespace,
 		Data: map[string][]byte{
 			"userId":       []byte("42"),
 			"refreshToken": []byte("refresh-token"),
@@ -108,17 +104,15 @@ func TestFailoverIpReconciler_SelectsNodeAndUpdatesStatus(t *testing.T) {
 	}
 	t.Cleanup(func() {
 		_ = k8sClient.Delete(ctx, &corev1.Secret{
-			ObjectMeta: metav1.ObjectMeta{Name: secretName, Namespace: namespace},
+			Name: secretName, Namespace: namespace,
 		})
 	})
 
 	node := &corev1.Node{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: nodeName,
-			Annotations: map[string]string{
-				netcupv1.ServerIDAnnotation: serverID,
-				netcupv1.MACAnnotation:      macAddress,
-			},
+		Name: nodeName,
+		Annotations: map[string]string{
+			netcupv1.ServerIDAnnotation: serverID,
+			netcupv1.MACAnnotation:      macAddress,
 		},
 		Status: corev1.NodeStatus{Conditions: []corev1.NodeCondition{{Type: corev1.NodeReady, Status: corev1.ConditionTrue}}},
 	}
@@ -126,7 +120,7 @@ func TestFailoverIpReconciler_SelectsNodeAndUpdatesStatus(t *testing.T) {
 		t.Fatalf("create node: %v", err)
 	}
 	t.Cleanup(func() {
-		_ = k8sClient.Delete(ctx, &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: nodeName}})
+		_ = k8sClient.Delete(ctx, &corev1.Node{Name: nodeName})
 	})
 
 	controllerReconciler := &FailoverIpReconciler{
@@ -136,13 +130,13 @@ func TestFailoverIpReconciler_SelectsNodeAndUpdatesStatus(t *testing.T) {
 	}
 
 	_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
-		NamespacedName: types.NamespacedName{Name: resourceName, Namespace: namespace},
+		Name: resourceName, Namespace: namespace,
 	})
 	if err != nil {
 		t.Fatalf("initialize: %v", err)
 	}
 	_, err = controllerReconciler.Reconcile(ctx, reconcile.Request{
-		NamespacedName: types.NamespacedName{Name: resourceName, Namespace: namespace},
+		Name: resourceName, Namespace: namespace,
 	})
 	if err != nil {
 		t.Fatalf("select target: %v", err)
@@ -157,7 +151,7 @@ func TestFailoverIpReconciler_SelectsNodeAndUpdatesStatus(t *testing.T) {
 		t.Fatalf("backdate candidate timer: %v", err)
 	}
 	_, err = controllerReconciler.Reconcile(ctx, reconcile.Request{
-		NamespacedName: types.NamespacedName{Name: resourceName, Namespace: namespace},
+		Name: resourceName, Namespace: namespace,
 	})
 	if err != nil {
 		t.Fatalf("stabilize target: %v", err)
@@ -175,6 +169,110 @@ func TestFailoverIpReconciler_SelectsNodeAndUpdatesStatus(t *testing.T) {
 	}
 	if len(updated.Status.LocalOwners) != 0 {
 		t.Fatalf("localOwners = %v, want empty", updated.Status.LocalOwners)
+	}
+}
+
+func TestFailoverIpReconciler_PersistsAdoptionOfCurrentProviderOwner(t *testing.T) {
+	t.Helper()
+
+	const (
+		resourceName = "adoption-resource"
+		namespace    = "default"
+		nodeName     = "node-1"
+		secretName   = "netcup-scp-credentials"
+		failoverIP   = "1.2.3.4"
+		serverID     = "12345"
+		macAddress   = "de:ad:be:ef:00:01"
+	)
+
+	ctx := context.Background()
+	// The provider already routes the IP to the server behind node-1.
+	fakeClient := &fakeFailoverIPClient{findFOIPID: 17, serverID: 12345}
+	originalNewFailoverIPClient := newFailoverIPClient
+	newFailoverIPClient = func(int, string) failoverIPClient {
+		return fakeClient
+	}
+	t.Cleanup(func() {
+		newFailoverIPClient = originalNewFailoverIPClient
+	})
+
+	resource := &netcupv1.FailoverIp{
+		Name:      resourceName,
+		Namespace: namespace,
+		Spec: netcupv1.FailoverIpSpec{
+			IP:         failoverIP,
+			SecretName: secretName,
+		},
+	}
+	if err := k8sClient.Create(ctx, resource); err != nil {
+		t.Fatalf("create failoverip: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = k8sClient.Delete(ctx, &netcupv1.FailoverIp{
+			Name: resourceName, Namespace: namespace,
+		})
+	})
+
+	secret := &corev1.Secret{
+		Name:      secretName,
+		Namespace: namespace,
+		Data: map[string][]byte{
+			"userId":       []byte("42"),
+			"refreshToken": []byte("refresh-token"),
+		},
+	}
+	if err := k8sClient.Create(ctx, secret); err != nil {
+		t.Fatalf("create secret: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = k8sClient.Delete(ctx, &corev1.Secret{
+			Name: secretName, Namespace: namespace,
+		})
+	})
+
+	node := &corev1.Node{
+		Name: nodeName,
+		Annotations: map[string]string{
+			netcupv1.ServerIDAnnotation: serverID,
+			netcupv1.MACAnnotation:      macAddress,
+		},
+		Status: corev1.NodeStatus{Conditions: []corev1.NodeCondition{{Type: corev1.NodeReady, Status: corev1.ConditionTrue}}},
+	}
+	if err := k8sClient.Create(ctx, node); err != nil {
+		t.Fatalf("create node: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = k8sClient.Delete(ctx, &corev1.Node{Name: nodeName})
+	})
+
+	controllerReconciler := &FailoverIpReconciler{
+		Client:    k8sClient,
+		APIReader: k8sClient,
+		Scheme:    k8sClient.Scheme(),
+	}
+
+	for range 3 {
+		if _, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+			Name: resourceName, Namespace: namespace,
+		}); err != nil {
+			t.Fatalf("reconcile: %v", err)
+		}
+	}
+
+	// The node agents only see persisted status: the adoption must survive a
+	// fresh read from the API server, not just the in-memory object.
+	var persisted netcupv1.FailoverIp
+	if err := k8sClient.Get(ctx, types.NamespacedName{Name: resourceName, Namespace: namespace}, &persisted); err != nil {
+		t.Fatalf("get failoverip: %v", err)
+	}
+	if persisted.Status.TargetNode != nodeName {
+		t.Fatalf("targetNode = %q, want adopted %q", persisted.Status.TargetNode, nodeName)
+	}
+	if persisted.Status.CandidateReason != "current provider owner observed" {
+		t.Fatalf("candidateReason = %q, want %q", persisted.Status.CandidateReason, "current provider owner observed")
+	}
+	if persisted.Status.ProviderObservedOwner != serverID {
+		t.Fatalf("providerObservedOwner = %q, want %q", persisted.Status.ProviderObservedOwner, serverID)
 	}
 }
 
@@ -202,10 +300,8 @@ func TestFailoverIpReconciler_CompletesMakeBeforeBreakHandoff(t *testing.T) {
 	})
 
 	resource := &netcupv1.FailoverIp{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      resourceName,
-			Namespace: namespace,
-		},
+		Name:      resourceName,
+		Namespace: namespace,
 		Spec: netcupv1.FailoverIpSpec{
 			IP:         failoverIP,
 			SecretName: secretName,
@@ -231,15 +327,13 @@ func TestFailoverIpReconciler_CompletesMakeBeforeBreakHandoff(t *testing.T) {
 	}
 	t.Cleanup(func() {
 		_ = k8sClient.Delete(ctx, &netcupv1.FailoverIp{
-			ObjectMeta: metav1.ObjectMeta{Name: resourceName, Namespace: namespace},
+			Name: resourceName, Namespace: namespace,
 		})
 	})
 
 	secret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      secretName,
-			Namespace: namespace,
-		},
+		Name:      secretName,
+		Namespace: namespace,
 		Data: map[string][]byte{
 			"userId":       []byte("42"),
 			"refreshToken": []byte("refresh-token"),
@@ -250,24 +344,22 @@ func TestFailoverIpReconciler_CompletesMakeBeforeBreakHandoff(t *testing.T) {
 	}
 	t.Cleanup(func() {
 		_ = k8sClient.Delete(ctx, &corev1.Secret{
-			ObjectMeta: metav1.ObjectMeta{Name: secretName, Namespace: namespace},
+			Name: secretName, Namespace: namespace,
 		})
 	})
 
 	node := &corev1.Node{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: nodeName,
-			Annotations: map[string]string{
-				netcupv1.ServerIDAnnotation: serverID,
-				netcupv1.MACAnnotation:      macAddress,
-			},
+		Name: nodeName,
+		Annotations: map[string]string{
+			netcupv1.ServerIDAnnotation: serverID,
+			netcupv1.MACAnnotation:      macAddress,
 		},
 	}
 	if err := k8sClient.Create(ctx, node); err != nil {
 		t.Fatalf("create node: %v", err)
 	}
 	t.Cleanup(func() {
-		_ = k8sClient.Delete(ctx, &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: nodeName}})
+		_ = k8sClient.Delete(ctx, &corev1.Node{Name: nodeName})
 	})
 
 	controllerReconciler := &FailoverIpReconciler{
@@ -278,7 +370,7 @@ func TestFailoverIpReconciler_CompletesMakeBeforeBreakHandoff(t *testing.T) {
 
 	for i := range 10 {
 		_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
-			NamespacedName: types.NamespacedName{Name: resourceName, Namespace: namespace},
+			Name: resourceName, Namespace: namespace,
 		})
 		if err != nil {
 			t.Fatalf("reconcile %d: %v", i, err)

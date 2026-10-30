@@ -52,7 +52,7 @@ func TestRecoverPostRouteFailurePolicies(t *testing.T) {
 			name:      "rolls provider back",
 			policy:    netcupv1.RecoveryPolicyRollbackProvider,
 			status:    netcupv1.FailoverIpStatus{SourceNode: "source"},
-			node:      &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "source", Annotations: map[string]string{netcupv1.ServerIDAnnotation: "101"}}},
+			node:      &corev1.Node{Name: "source", Annotations: map[string]string{netcupv1.ServerIDAnnotation: "101"}},
 			wantPhase: netcupv1.FailoverPhaseDegraded, wantRouteCalls: 1, wantRequeue: true,
 		},
 		{
@@ -65,7 +65,7 @@ func TestRecoverPostRouteFailurePolicies(t *testing.T) {
 			name:          "blocks when rollback provider fails",
 			policy:        netcupv1.RecoveryPolicyRollbackProvider,
 			status:        netcupv1.FailoverIpStatus{SourceNode: "source"},
-			node:          &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "source", Annotations: map[string]string{netcupv1.ServerIDAnnotation: "101"}}},
+			node:          &corev1.Node{Name: "source", Annotations: map[string]string{netcupv1.ServerIDAnnotation: "101"}},
 			providerError: errors.New("provider unavailable"),
 			wantPhase:     netcupv1.FailoverPhaseBlocked, wantRouteCalls: 1, wantRequeue: true,
 		},
@@ -82,16 +82,16 @@ func TestRecoverPostRouteFailurePolicies(t *testing.T) {
 				t.Fatal(err)
 			}
 			foip := &netcupv1.FailoverIp{
-				ObjectMeta: metav1.ObjectMeta{Name: "recovery", Namespace: "default"},
-				Spec:       netcupv1.FailoverIpSpec{RecoveryPolicy: tt.policy, ProviderCooldownSeconds: 1},
-				Status:     tt.status,
+				Name: "recovery", Namespace: "default",
+				Spec:   netcupv1.FailoverIpSpec{RecoveryPolicy: tt.policy, ProviderCooldownSeconds: 1},
+				Status: tt.status,
 			}
 			objects := []runtime.Object{foip}
 			if tt.node != nil {
 				objects = append(objects, tt.node)
 			}
 			client := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(foip).WithRuntimeObjects(objects...).Build()
-			provider := &countingFailoverIPClient{fakeFailoverIPClient: fakeFailoverIPClient{serverID: 202, routeTarget: 101, routeErr: tt.providerError}}
+			provider := &countingFailoverIPClient{serverID: 202, routeTarget: 101, routeErr: tt.providerError}
 			reconciler := &FailoverIpReconciler{Client: client, APIReader: client, Scheme: scheme}
 
 			commit, result, err := reconciler.recoverPostRouteFailure(ctx, foip, provider, 17)
@@ -148,7 +148,7 @@ func TestRecoveryRollbackCooldownAndProviderFailures(t *testing.T) {
 			if allowed != tt.wantAllowed {
 				t.Fatalf("mutation allowed = %v, want %v", allowed, tt.wantAllowed)
 			}
-			err := validateProviderFence(status, tt.observedOwner, "202")
+			err := validateProviderFence(status, tt.observedOwner)
 			if (err != nil) != tt.wantFenceErr {
 				t.Fatalf("fence error = %v, want error=%v", err, tt.wantFenceErr)
 			}
@@ -164,11 +164,11 @@ func TestRollbackRecoveryIsIdempotentAndFenced(t *testing.T) {
 	if err := corev1.AddToScheme(scheme); err != nil {
 		t.Fatal(err)
 	}
-	node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "source", Annotations: map[string]string{netcupv1.ServerIDAnnotation: "101"}}}
+	node := &corev1.Node{Name: "source", Annotations: map[string]string{netcupv1.ServerIDAnnotation: "101"}}
 	newResource := func(providerOwner string) *netcupv1.FailoverIp {
 		return &netcupv1.FailoverIp{
-			ObjectMeta: metav1.ObjectMeta{Name: "recovery", Namespace: "default"},
-			Spec:       netcupv1.FailoverIpSpec{RecoveryPolicy: netcupv1.RecoveryPolicyRollbackProvider},
+			Name: "recovery", Namespace: "default",
+			Spec: netcupv1.FailoverIpSpec{RecoveryPolicy: netcupv1.RecoveryPolicyRollbackProvider},
 			Status: netcupv1.FailoverIpStatus{
 				SourceNode:            "source",
 				ProviderObservedOwner: providerOwner,
@@ -177,7 +177,7 @@ func TestRollbackRecoveryIsIdempotentAndFenced(t *testing.T) {
 	}
 
 	t.Run("already rolled back does not mutate again", func(t *testing.T) {
-		provider := &countingFailoverIPClient{fakeFailoverIPClient: fakeFailoverIPClient{serverID: 101}}
+		provider := &countingFailoverIPClient{serverID: 101}
 		resource := newResource("202")
 		client := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(resource).WithRuntimeObjects(resource, node).Build()
 		reconciler := &FailoverIpReconciler{Client: client, APIReader: client, Scheme: scheme}
@@ -191,7 +191,7 @@ func TestRollbackRecoveryIsIdempotentAndFenced(t *testing.T) {
 	})
 
 	t.Run("out of band owner blocks rollback", func(t *testing.T) {
-		provider := &countingFailoverIPClient{fakeFailoverIPClient: fakeFailoverIPClient{serverID: 303}}
+		provider := &countingFailoverIPClient{serverID: 303}
 		resource := newResource("202")
 		client := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(resource).WithRuntimeObjects(resource, node).Build()
 		reconciler := &FailoverIpReconciler{Client: client, APIReader: client, Scheme: scheme}
@@ -237,16 +237,16 @@ func TestProbeGatesByPhase(t *testing.T) {
 				t.Fatal(err)
 			}
 			objects := []runtime.Object{}
-			probe := &netcupv1.FailoverProbe{ObjectMeta: metav1.ObjectMeta{Name: "gate", Namespace: "default"}, Spec: netcupv1.FailoverProbeSpec{Phase: tt.probePhase, Type: netcupv1.ProbeTypeKubernetes, Kubernetes: &netcupv1.KubernetesReadinessTarget{APIVersion: "v1", Kind: "ConfigMap", Name: "gate", Namespace: "default"}}}
+			probe := &netcupv1.FailoverProbe{Name: "gate", Namespace: "default", Spec: netcupv1.FailoverProbeSpec{Phase: tt.probePhase, Type: netcupv1.ProbeTypeKubernetes, Kubernetes: &netcupv1.KubernetesReadinessTarget{APIVersion: "v1", Kind: "ConfigMap", Name: "gate", Namespace: "default"}}}
 			// ConfigMap is intentionally unsupported by the Kubernetes probe executor;
 			// use a Pod object for the passing case and omit it for the failing case.
 			probe.Spec.Kubernetes.Kind = "Pod"
 			objects = append(objects, probe)
 			if tt.ready {
-				objects = append(objects, &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "gate", Namespace: "default"}})
+				objects = append(objects, &corev1.Pod{Name: "gate", Namespace: "default"})
 			}
 			reader := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&netcupv1.FailoverProbe{}).WithRuntimeObjects(objects...).Build()
-			foip := netcupv1.FailoverIp{ObjectMeta: metav1.ObjectMeta{Name: "foip", Namespace: "default"}, Spec: netcupv1.FailoverIpSpec{Probes: []corev1.LocalObjectReference{{Name: "gate"}}}}
+			foip := netcupv1.FailoverIp{Name: "foip", Namespace: "default", Spec: netcupv1.FailoverIpSpec{Probes: []corev1.LocalObjectReference{{Name: "gate"}}}}
 			err := evaluateProbePhase(context.Background(), reader, foip, tt.requested)
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("probe gate error = %v, want error=%v", err, tt.wantErr)
@@ -266,10 +266,10 @@ func TestRecoveryProbeCompositionAllAndQuorum(t *testing.T) {
 		t.Fatal(err)
 	}
 	probes := []*netcupv1.FailoverProbe{
-		{ObjectMeta: metav1.ObjectMeta{Name: "present", Namespace: "default"}, Spec: netcupv1.FailoverProbeSpec{Phase: netcupv1.ProbePhasePostRoute, Type: netcupv1.ProbeTypeKubernetes, Kubernetes: &netcupv1.KubernetesReadinessTarget{APIVersion: "v1", Kind: "Pod", Name: "present", Namespace: "default"}}},
-		{ObjectMeta: metav1.ObjectMeta{Name: "missing", Namespace: "default"}, Spec: netcupv1.FailoverProbeSpec{Phase: netcupv1.ProbePhasePostRoute, Type: netcupv1.ProbeTypeKubernetes, Kubernetes: &netcupv1.KubernetesReadinessTarget{APIVersion: "v1", Kind: "Pod", Name: "missing", Namespace: "default"}}},
+		{Name: "present", Namespace: "default", Spec: netcupv1.FailoverProbeSpec{Phase: netcupv1.ProbePhasePostRoute, Type: netcupv1.ProbeTypeKubernetes, Kubernetes: &netcupv1.KubernetesReadinessTarget{APIVersion: "v1", Kind: "Pod", Name: "present", Namespace: "default"}}},
+		{Name: "missing", Namespace: "default", Spec: netcupv1.FailoverProbeSpec{Phase: netcupv1.ProbePhasePostRoute, Type: netcupv1.ProbeTypeKubernetes, Kubernetes: &netcupv1.KubernetesReadinessTarget{APIVersion: "v1", Kind: "Pod", Name: "missing", Namespace: "default"}}},
 	}
-	reader := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&netcupv1.FailoverProbe{}).WithRuntimeObjects(probes[0], probes[1], &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "present", Namespace: "default"}}).Build()
+	reader := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&netcupv1.FailoverProbe{}).WithRuntimeObjects(probes[0], probes[1], &corev1.Pod{Name: "present", Namespace: "default"}).Build()
 	for _, tt := range []struct {
 		name        string
 		composition netcupv1.ProbeComposition
@@ -280,7 +280,7 @@ func TestRecoveryProbeCompositionAllAndQuorum(t *testing.T) {
 		{name: "quorum of one accepts one success", composition: netcupv1.ProbeCompositionQuorum, quorum: 1},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			foip := netcupv1.FailoverIp{ObjectMeta: metav1.ObjectMeta{Name: "foip", Namespace: "default"}, Spec: netcupv1.FailoverIpSpec{ProbeComposition: tt.composition, ProbeQuorum: tt.quorum, Probes: []corev1.LocalObjectReference{{Name: "present"}, {Name: "missing"}}}}
+			foip := netcupv1.FailoverIp{Name: "foip", Namespace: "default", Spec: netcupv1.FailoverIpSpec{ProbeComposition: tt.composition, ProbeQuorum: tt.quorum, Probes: []corev1.LocalObjectReference{{Name: "present"}, {Name: "missing"}}}}
 			err := evaluateProbePhase(context.Background(), reader, foip, netcupv1.ProbePhasePostRoute)
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("gate error = %v, want error=%v", err, tt.wantErr)

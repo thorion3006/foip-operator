@@ -34,7 +34,7 @@ func TestRetryDelayIsBounded(t *testing.T) {
 
 func TestValidateProviderFence(t *testing.T) {
 	status := netcupv1.FailoverIpStatus{ProviderObservedOwner: "123"}
-	if err := validateProviderFence(status, "456", "789"); err == nil {
+	if err := validateProviderFence(status, "456"); err == nil {
 		t.Fatal("expected out-of-band owner change to be rejected")
 	}
 }
