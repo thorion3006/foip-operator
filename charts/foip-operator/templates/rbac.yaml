@@ -124,6 +124,9 @@ rules:
 - apiGroups: [foip.noshoes.xyz]
   resources: [failoverips]
   verbs: [get, list, watch]
+- apiGroups: [foip.noshoes.xyz]
+  resources: [failoverips/status]
+  verbs: [get, update, patch]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
