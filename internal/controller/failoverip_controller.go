@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -51,6 +52,12 @@ const (
 	providerVerifyAttempts  = 15
 )
 
+// +kubebuilder:rbac:groups=foip.noshoes.xyz,resources=failoverips,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=foip.noshoes.xyz,resources=failoverips/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=foip.noshoes.xyz,resources=failoverprobes,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
+
 // FailoverIpReconciler implements a persisted, make-before-break state machine:
 // candidate selection and stabilization precede local preparation, provider
 // routing, traffic verification, commit, and stale-owner cleanup.
@@ -73,9 +80,6 @@ var newFailoverIPClient = func(userID int, refreshToken string) failoverIPClient
 	return netcup.NewFromEnvironment(userID, refreshToken)
 }
 
-// +kubebuilder:rbac:groups=foip.noshoes.xyz,resources=failoverips;failoverprobes,verbs=get;list;watch;update;patch
-// +kubebuilder:rbac:groups=foip.noshoes.xyz,resources=failoverips/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch
 func (r *FailoverIpReconciler) Reconcile(ctx context.Context, req ctrl.Request) (res ctrl.Result, err error) { //nolint:gocyclo // this method coordinates persisted safety gates
 	start := time.Now()
 	currentPhase := ""
@@ -183,7 +187,7 @@ func (r *FailoverIpReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("findFailoverIP: %w", err)
 	}
-	if err := validateProviderFence(foip.Status, strconv.Itoa(currentServerID), ""); err != nil {
+	if err := validateProviderFence(foip.Status, strconv.Itoa(currentServerID)); err != nil {
 		patch := client.MergeFrom(foip.DeepCopy())
 		foip.Status.Phase = netcupv1.FailoverPhaseBlocked
 		foip.Status.LastError = err.Error()
@@ -194,19 +198,32 @@ func (r *FailoverIpReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		}
 		return ctrl.Result{}, err
 	}
-	foip.Status.ProviderObservedOwner = strconv.Itoa(currentServerID)
-
+	// The node agents decide ownership from the persisted status, so both the
+	// observed owner and an adopted target must be written before anyone waits
+	// on LocalOwners to advance.
 	var nodeList corev1.NodeList
 	if err := r.List(ctx, &nodeList); err != nil {
 		return ctrl.Result{}, err
 	}
-	candidates := candidateNodes(nodeList.Items)
+	adoptionBase := foip.DeepCopy()
+	adoptedNode := ""
+	foip.Status.ProviderObservedOwner = strconv.Itoa(currentServerID)
 	if foip.Status.TargetNode == "" {
 		if owner := nodeForServerID(nodeList.Items, currentServerID); owner != nil {
 			foip.Status.TargetNode = owner.Name
 			foip.Status.CandidateReason = "current provider owner observed"
+			adoptedNode = owner.Name
 		}
 	}
+	if adoptedNode != "" || adoptionBase.Status.ProviderObservedOwner != foip.Status.ProviderObservedOwner {
+		if err := r.Status().Patch(ctx, &foip, client.MergeFrom(adoptionBase)); err != nil {
+			return ctrl.Result{}, err
+		}
+		if adoptedNode != "" {
+			log.Info("Adopted current provider owner as failover target", "node", adoptedNode)
+		}
+	}
+	candidates := candidateNodes(nodeList.Items)
 	better := betterNode(candidates, foip.Status.TargetNode)
 	if better == nil && foip.Status.Phase == netcupv1.FailoverPhaseStabilizing && foip.Status.CandidateSince != nil {
 		patch := client.MergeFrom(foip.DeepCopy())
@@ -623,11 +640,12 @@ func (nodeChangePredicate) Update(e event.UpdateEvent) bool {
 func (r *FailoverIpReconciler) nodeToFoips(ctx context.Context, _ client.Object) []reconcile.Request {
 	var list netcupv1.FailoverIpList
 	if err := r.List(ctx, &list); err != nil {
+		logf.FromContext(ctx).Error(err, "Failed to list FailoverIps for node mapping")
 		return nil
 	}
 	reqs := make([]reconcile.Request, len(list.Items))
 	for i, foip := range list.Items {
-		reqs[i] = reconcile.Request{NamespacedName: types.NamespacedName{Name: foip.Name, Namespace: foip.Namespace}}
+		reqs[i] = reconcile.Request{Name: foip.Name, Namespace: foip.Namespace}
 	}
 	return reqs
 }
@@ -635,6 +653,7 @@ func (r *FailoverIpReconciler) nodeToFoips(ctx context.Context, _ client.Object)
 func (r *FailoverIpReconciler) probeToFoips(ctx context.Context, obj client.Object) []reconcile.Request {
 	var list netcupv1.FailoverIpList
 	if err := r.List(ctx, &list); err != nil {
+		logf.FromContext(ctx).Error(err, "Failed to list FailoverIps for probe mapping")
 		return nil
 	}
 	var reqs []reconcile.Request
@@ -642,7 +661,7 @@ func (r *FailoverIpReconciler) probeToFoips(ctx context.Context, obj client.Obje
 		foip := &list.Items[i]
 		for _, ref := range foip.Spec.Probes {
 			if ref.Name == obj.GetName() && foip.Namespace == obj.GetNamespace() {
-				reqs = append(reqs, reconcile.Request{NamespacedName: types.NamespacedName{Name: foip.Name, Namespace: foip.Namespace}})
+				reqs = append(reqs, reconcile.Request{Name: foip.Name, Namespace: foip.Namespace})
 				break
 			}
 		}
@@ -653,10 +672,12 @@ func (r *FailoverIpReconciler) probeToFoips(ctx context.Context, obj client.Obje
 func (r *FailoverIpReconciler) secretToFoips(ctx context.Context, obj client.Object) []reconcile.Request {
 	var foips netcupv1.FailoverIpList
 	if err := r.List(ctx, &foips, client.InNamespace(obj.GetNamespace())); err != nil {
+		logf.FromContext(ctx).Error(err, "Failed to list FailoverIps for secret mapping")
 		return nil
 	}
 	var probes netcupv1.FailoverProbeList
 	if err := r.List(ctx, &probes, client.InNamespace(obj.GetNamespace())); err != nil {
+		logf.FromContext(ctx).Error(err, "Failed to list FailoverProbes for secret mapping")
 		return nil
 	}
 	probeNames := make(map[string]struct{})
@@ -680,14 +701,14 @@ func (r *FailoverIpReconciler) secretToFoips(ctx context.Context, obj client.Obj
 			}
 		}
 		if match {
-			requests = append(requests, reconcile.Request{NamespacedName: types.NamespacedName{Name: foip.Name, Namespace: foip.Namespace}})
+			requests = append(requests, reconcile.Request{Name: foip.Name, Namespace: foip.Namespace})
 		}
 	}
 	slices.SortFunc(requests, func(a, b reconcile.Request) int {
 		if a.Namespace != b.Namespace {
-			return slices.Compare([]string{a.Namespace}, []string{b.Namespace})
+			return strings.Compare(a.Namespace, b.Namespace)
 		}
-		return slices.Compare([]string{a.Name}, []string{b.Name})
+		return strings.Compare(a.Name, b.Name)
 	})
 	return requests
 }

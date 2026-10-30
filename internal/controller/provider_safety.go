@@ -58,12 +58,9 @@ func retryDelay(spec netcupv1.FailoverIpSpec, retryCount int32) time.Duration {
 	return jitter
 }
 
-func validateProviderFence(status netcupv1.FailoverIpStatus, observedOwner, targetOwner string) error {
+func validateProviderFence(status netcupv1.FailoverIpStatus, observedOwner string) error {
 	if status.ProviderObservedOwner != "" && status.ProviderObservedOwner != observedOwner {
 		return fmt.Errorf("provider owner changed out of band from %s to %s", status.ProviderObservedOwner, observedOwner)
-	}
-	if observedOwner == targetOwner {
-		return nil
 	}
 	return nil
 }

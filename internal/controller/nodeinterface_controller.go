@@ -50,11 +50,9 @@ type NodeInterfaceReconciler struct {
 	NodeName string
 }
 
-// +kubebuilder:rbac:groups=foip.noshoes.xyz,resources=failoverips,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=foip.noshoes.xyz,resources=failoverips,verbs=get;list;watch
 // +kubebuilder:rbac:groups=foip.noshoes.xyz,resources=failoverips/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=foip.noshoes.xyz,resources=failoverprobes,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch
-// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
 
 func (r *NodeInterfaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (res ctrl.Result, err error) {
 	start := time.Now()
@@ -247,11 +245,12 @@ func (p localNodeMACChangedPredicate) Update(e event.UpdateEvent) bool {
 func (r *NodeInterfaceReconciler) nodeToAllFoips(ctx context.Context, _ client.Object) []reconcile.Request {
 	var list netcupv1.FailoverIpList
 	if err := r.List(ctx, &list); err != nil {
+		logf.FromContext(ctx).Error(err, "Failed to list FailoverIps for node mapping")
 		return nil
 	}
 	reqs := make([]reconcile.Request, len(list.Items))
 	for i, foip := range list.Items {
-		reqs[i] = reconcile.Request{NamespacedName: types.NamespacedName{Name: foip.Name, Namespace: foip.Namespace}}
+		reqs[i] = reconcile.Request{Name: foip.Name, Namespace: foip.Namespace}
 	}
 	return reqs
 }
