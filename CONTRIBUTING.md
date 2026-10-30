@@ -38,7 +38,11 @@ Not every change needs all of these, but changes to APIs, RBAC, or controller be
 - Explain the user-visible impact
 - Mention any rollout or upgrade implications
 - Call out changes to images, tags, or release automation
-- Keep docs and examples in sync with code changes
+- Keep docs and examples in sync with code changes: when behavior, defaults,
+  ports, RBAC, or prerequisites change, update every claim they invalidate in
+  the README, ARCHITECTURE, DEVELOPMENT, and MIGRATION docs as part of the PR
+- Add a MIGRATION.md entry when a change affects upgrades (for example when a
+  shipped manifest starts restricting traffic or requesting resources)
 
 ## Style
 
