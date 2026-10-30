@@ -93,6 +93,11 @@ phase, provider, operation, and outcome labels only. Transition spans use the
 `foip.transition_id` attribute, so provider and probe child spans can be joined
 without putting IP addresses, URLs, headers, or credentials into labels.
 
+Note that `make deploy` (and `dist/install.yaml`) ships a NetworkPolicy that
+admits `:8443` scrapes only from namespaces labeled `metrics: enabled`; the
+kubelet health probes on `:8081` are always allowed. The e2e suite labels its
+namespace before scraping — do the same for any local Prometheus.
+
 For a product-neutral deployment, scrape `/metrics` with Prometheus (or a
 compatible collector), send OTLP traces to any OpenTelemetry Collector, and
 route the two example expressions to the alerting system of your choice.

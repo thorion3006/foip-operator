@@ -37,7 +37,7 @@ Recommended install path: **Helm**.
 - A Kubernetes cluster
 - `kubectl` configured to access it
 - `helm` v3
-- A netcup account with at least one failover IP and the [SCP Webservice](https://helpcenter.netcup.com/en/wiki/server/scp-webservice/) activated
+- A netcup account with at least one failover IP and the [SCP REST API](https://www.netcup.com/en/helpcenter/documentation/server/rest-api) enabled (API menu in the SCP)
 
 ### 1. Credentials
 
@@ -107,6 +107,16 @@ If you want a single rendered manifest bundle for GitOps or offline use:
 ```sh
 make build-installer IMG=$IMG
 kubectl apply -f dist/install.yaml
+```
+
+The default Kustomize install ships a NetworkPolicy that restricts ingress to
+the controller: the metrics endpoint (`:8443`) only accepts scrapes from
+namespaces labeled `metrics: enabled`, and the kubelet health-probe port
+(`:8081`, serving only `/healthz` and `/readyz`) is open to the node. Label
+the namespace your scraper runs in:
+
+```sh
+kubectl label namespace <monitoring-namespace> metrics=enabled
 ```
 
 ### 4. Create a FailoverIp resource (Optional)
@@ -202,9 +212,11 @@ spec:
 
 ### Observability
 
-The operator exposes its operational metrics on the existing `/metrics` endpoint,
-so the controller Deployment can still be scraped by Prometheus through the
-bundled `ServiceMonitor`.
+The operator serves metrics over TLS on `:8443`. On Kustomize installs the
+shipped NetworkPolicy admits scrapes only from namespaces labeled
+`metrics: enabled` (see the install section above); a Prometheus
+`ServiceMonitor` scaffold is available under `config/prometheus` if you use the
+Prometheus Operator. The Helm chart leaves metrics traffic unconstrained.
 
 Tracing is enabled through OpenTelemetry environment variables. Set an OTLP endpoint
 from your deployment tooling and the binaries will export spans automatically:

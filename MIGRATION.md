@@ -1,4 +1,29 @@
-# Migration to v1.0.0 from v0.3.0
+# Migration
+
+## Upgrading to v1.2.0 from v1.1.0
+
+There is no API change. Two operational differences require attention:
+
+1. **Kustomize installs now ship a NetworkPolicy.** Ingress to the controller
+   is restricted: the metrics endpoint (`:8443`) only accepts scrapes from
+   namespaces labeled `metrics: enabled`. If you scrape `/metrics` with
+   Prometheus (or any collector) running in an unlabeled namespace, scraping
+   stops after the upgrade. Label the namespace before upgrading:
+
+   ```sh
+   kubectl label namespace <monitoring-namespace> metrics=enabled
+   ```
+
+   Helm installs are unaffected (the chart ships no NetworkPolicy).
+2. **The chart's DaemonSet now requests CPU and memory by default** instead of
+   running BestEffort. On very small or fully allocated nodes this can change
+   scheduling; adjust `nodeInterface.resources` in your values if needed.
+
+The release also moves the toolchain to Go 1.27 and the controller libraries to
+kubernetes 0.37 / controller-runtime 0.25. No CRD, status, or values changes
+are required.
+
+## Migration to v1.0.0 from v0.3.0
 
 The v1.0.0 production-safe orchestration release is a breaking API change. It does
 not provide conversion webhooks or compatibility aliases for v0.3.0 objects,

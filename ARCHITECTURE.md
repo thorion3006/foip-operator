@@ -116,6 +116,11 @@ The important safety gates are:
 6. run pre-route and post-route probes at the configured phase
 7. commit the transition only after the provider and local ownership agree
 8. keep cleaning stale owners until exactly one node owns the `/32`
+9. reject provider owner changes made out of band. The fence compares the
+   observed owner against the persisted `providerObservedOwner` and accepts
+   exactly one expected change: the persisted target node's server id, so a
+   restart between the routing call and its verification can still converge.
+   Any other owner moves the transition to `Blocked`.
 
 If post-route probes fail, the configured recovery policy determines the
 outcome:
@@ -160,6 +165,10 @@ The operator exposes:
 - OpenTelemetry spans correlated by transition ID
 - structured logs with redaction for URLs, addresses, and credential-like
   values
+
+On Kustomize installs a shipped NetworkPolicy gates ingress to the controller:
+the metrics port only accepts scrapes from namespaces labeled
+`metrics: enabled`, and the kubelet health-probe port is open to the node.
 
 These signals are intentionally generic. The docs and charts do not assume a
 specific ingress controller, WAF, reverse proxy, or monitoring backend.
