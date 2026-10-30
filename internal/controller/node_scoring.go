@@ -120,6 +120,17 @@ func nodeForServerID(nodes []corev1.Node, serverID int) *corev1.Node {
 	return nil
 }
 
+// serverIDForNode resolves a node name to its provider server id, or an empty
+// string when the node or its annotation is absent.
+func serverIDForNode(nodes []corev1.Node, name string) string {
+	for i := range nodes {
+		if nodes[i].Name == name {
+			return nodes[i].Annotations[netcupv1.ServerIDAnnotation]
+		}
+	}
+	return ""
+}
+
 // betterNode returns the healthiest candidate node, but only if it is
 // strictly healthier than currentName (differs on at least one issue field).
 // Returns nil when:

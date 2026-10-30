@@ -148,7 +148,7 @@ func TestRecoveryRollbackCooldownAndProviderFailures(t *testing.T) {
 			if allowed != tt.wantAllowed {
 				t.Fatalf("mutation allowed = %v, want %v", allowed, tt.wantAllowed)
 			}
-			err := validateProviderFence(status, tt.observedOwner)
+			err := validateProviderFence(status, tt.observedOwner, "")
 			if (err != nil) != tt.wantFenceErr {
 				t.Fatalf("fence error = %v, want error=%v", err, tt.wantFenceErr)
 			}

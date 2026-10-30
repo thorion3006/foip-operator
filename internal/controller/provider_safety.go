@@ -58,8 +58,11 @@ func retryDelay(spec netcupv1.FailoverIpSpec, retryCount int32) time.Duration {
 	return jitter
 }
 
-func validateProviderFence(status netcupv1.FailoverIpStatus, observedOwner string) error {
-	if status.ProviderObservedOwner != "" && status.ProviderObservedOwner != observedOwner {
+// validateProviderFence rejects provider owner changes made out of band while
+// accepting the one expected change toward the persisted target node, so a
+// restart between routing and verification can still converge.
+func validateProviderFence(status netcupv1.FailoverIpStatus, observedOwner, expectedOwner string) error {
+	if status.ProviderObservedOwner != "" && status.ProviderObservedOwner != observedOwner && observedOwner != expectedOwner {
 		return fmt.Errorf("provider owner changed out of band from %s to %s", status.ProviderObservedOwner, observedOwner)
 	}
 	return nil
