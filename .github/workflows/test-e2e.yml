@@ -39,7 +39,7 @@ jobs:
 
       - name: Install kind
         run: |
-          curl -Lo ./kind https://kind.sigs.k8s.io/dl/release/v0.33.0/bin/$(go env GOOS)-$(go env GOARCH)
+          curl -fLo ./kind https://kind.sigs.k8s.io/dl/v0.33.0/kind-$(go env GOOS)-$(go env GOARCH)
           chmod +x ./kind
           sudo mv ./kind /usr/local/bin/kind
 
