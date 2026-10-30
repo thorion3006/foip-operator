@@ -22,7 +22,7 @@
             version = "1.27.3";
             src = pkgs.fetchurl {
               url = "https://go.dev/dl/go1.27.3.linux-${if pkgs.stdenv.hostPlatform.system == "aarch64-linux" then "arm64" else "amd64"}.tar.gz";
-              sha256 = if pkgs.stdenv.hostPlatform.system == "aarch64-linux" then "sha256-bMyyuoM1dZiQMlFqVsqRNKoo9gXls86nAWwTmennpmk=" else "sha256-FnUZaleGBAuA43mZYJAhLXhmttnraQrThbf3LSH2YLE=";
+              sha256 = if pkgs.stdenv.hostPlatform.system == "aarch64-linux" then "sha256-oG6ZMJ28vcoajM0igsPuFG5VkwiG4mtPEZMmlYcWX0k=" else "sha256-Ze+8gP3B+izSYxytW0gXd6aOhyXzTon1D8ascU43m0A=";
             };
           });
         in {
