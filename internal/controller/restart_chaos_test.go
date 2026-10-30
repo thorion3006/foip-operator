@@ -137,15 +137,15 @@ func TestRestartResume_PersistsProviderCooldown(t *testing.T) {
 		secretName = "cooldown-secret"
 	)
 
-	fakeProvider := &countingFailoverIPClient{fakeFailoverIPClient: fakeFailoverIPClient{findFOIPID: 17, serverID: 1}}
+	fakeProvider := &countingFailoverIPClient{findFOIPID: 17, serverID: 1}
 	previousFactory := newFailoverIPClient
 	newFailoverIPClient = func(int, string) failoverIPClient { return fakeProvider }
 	t.Cleanup(func() { newFailoverIPClient = previousFactory })
 
 	attempted := metav1.NewTime(time.Now())
 	resource := &netcupv1.FailoverIp{
-		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
-		Spec:       netcupv1.FailoverIpSpec{IP: "192.0.2.10", SecretName: secretName, ProviderCooldownSeconds: 3600},
+		Name: name, Namespace: namespace,
+		Spec: netcupv1.FailoverIpSpec{IP: "192.0.2.10", SecretName: secretName, ProviderCooldownSeconds: 3600},
 		Status: netcupv1.FailoverIpStatus{
 			TransitionID:                    "cooldown-transition",
 			Phase:                           netcupv1.FailoverPhaseRoutingProvider,
@@ -155,14 +155,14 @@ func TestRestartResume_PersistsProviderCooldown(t *testing.T) {
 		},
 	}
 	secret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Name: secretName, Namespace: namespace},
-		Data:       map[string][]byte{"userId": []byte("42"), "refreshToken": []byte("token")},
+		Name: secretName, Namespace: namespace,
+		Data: map[string][]byte{"userId": []byte("42"), "refreshToken": []byte("token")},
 	}
-	node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: nodeName, Annotations: map[string]string{netcupv1.ServerIDAnnotation: "2"}}}
+	node := &corev1.Node{Name: nodeName, Annotations: map[string]string{netcupv1.ServerIDAnnotation: "2"}}
 	fakeClient := fake.NewClientBuilder().WithScheme(k8sClient.Scheme()).WithStatusSubresource(&netcupv1.FailoverIp{}).WithObjects(resource, secret, node).Build()
 	reconciler := &FailoverIpReconciler{Client: fakeClient, APIReader: fakeClient, Scheme: k8sClient.Scheme()}
 
-	if _, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: name, Namespace: namespace}}); err != nil {
+	if _, err := reconciler.Reconcile(ctx, reconcile.Request{Name: name, Namespace: namespace}); err != nil {
 		t.Fatalf("reconcile persisted cooldown: %v", err)
 	}
 	if fakeProvider.routeCalls != 0 {
@@ -189,14 +189,14 @@ func TestRestartResume_DoesNotDuplicateProviderMutation(t *testing.T) {
 		secretName = "resume-secret"
 	)
 
-	fakeProvider := &countingFailoverIPClient{fakeFailoverIPClient: fakeFailoverIPClient{findFOIPID: 17, serverID: 1, routeTarget: 2}}
+	fakeProvider := &countingFailoverIPClient{findFOIPID: 17, serverID: 1, routeTarget: 2}
 	previousFactory := newFailoverIPClient
 	newFailoverIPClient = func(int, string) failoverIPClient { return fakeProvider }
 	t.Cleanup(func() { newFailoverIPClient = previousFactory })
 
 	resource := &netcupv1.FailoverIp{
-		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
-		Spec:       netcupv1.FailoverIpSpec{IP: "192.0.2.11", SecretName: secretName},
+		Name: name, Namespace: namespace,
+		Spec: netcupv1.FailoverIpSpec{IP: "192.0.2.11", SecretName: secretName},
 		Status: netcupv1.FailoverIpStatus{
 			TransitionID: "resume-transition",
 			Phase:        netcupv1.FailoverPhaseRoutingProvider,
@@ -205,12 +205,12 @@ func TestRestartResume_DoesNotDuplicateProviderMutation(t *testing.T) {
 		},
 	}
 	secret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Name: secretName, Namespace: namespace},
-		Data:       map[string][]byte{"userId": []byte("42"), "refreshToken": []byte("token")},
+		Name: secretName, Namespace: namespace,
+		Data: map[string][]byte{"userId": []byte("42"), "refreshToken": []byte("token")},
 	}
-	node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: nodeName, Annotations: map[string]string{netcupv1.ServerIDAnnotation: "2"}}}
+	node := &corev1.Node{Name: nodeName, Annotations: map[string]string{netcupv1.ServerIDAnnotation: "2"}}
 	fakeClient := fake.NewClientBuilder().WithScheme(k8sClient.Scheme()).WithStatusSubresource(&netcupv1.FailoverIp{}).WithObjects(resource, secret, node).Build()
-	request := reconcile.Request{NamespacedName: types.NamespacedName{Name: name, Namespace: namespace}}
+	request := reconcile.Request{Name: name, Namespace: namespace}
 
 	first := &FailoverIpReconciler{Client: fakeClient, APIReader: fakeClient, Scheme: k8sClient.Scheme()}
 	if _, err := first.Reconcile(ctx, request); err != nil {
@@ -245,18 +245,17 @@ func TestRestartResume_UsesPersistedStatusFromEnvtest(t *testing.T) {
 		secretName = "envtest-restart-secret"
 	)
 
-	fakeProvider := &countingFailoverIPClient{fakeFailoverIPClient: fakeFailoverIPClient{
+	fakeProvider := &countingFailoverIPClient{
 		findFOIPID:  17,
 		serverID:    101,
-		routeTarget: 202,
-	}}
+		routeTarget: 202}
 	previousFactory := newFailoverIPClient
 	newFailoverIPClient = func(int, string) failoverIPClient { return fakeProvider }
 	t.Cleanup(func() { newFailoverIPClient = previousFactory })
 
 	resource := &netcupv1.FailoverIp{
-		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
-		Spec:       netcupv1.FailoverIpSpec{IP: "192.0.2.12", SecretName: secretName},
+		Name: name, Namespace: namespace,
+		Spec: netcupv1.FailoverIpSpec{IP: "192.0.2.12", SecretName: secretName},
 	}
 	if err := k8sClient.Create(ctx, resource); err != nil {
 		t.Fatalf("create failoverip: %v", err)
@@ -264,24 +263,23 @@ func TestRestartResume_UsesPersistedStatusFromEnvtest(t *testing.T) {
 	t.Cleanup(func() { _ = k8sClient.Delete(ctx, resource) })
 
 	secret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Name: secretName, Namespace: namespace},
-		Data:       map[string][]byte{"userId": []byte("42"), "refreshToken": []byte("token")},
+		Name: secretName, Namespace: namespace,
+		Data: map[string][]byte{"userId": []byte("42"), "refreshToken": []byte("token")},
 	}
 	if err := k8sClient.Create(ctx, secret); err != nil {
 		t.Fatalf("create secret: %v", err)
 	}
 	t.Cleanup(func() { _ = k8sClient.Delete(ctx, secret) })
 
-	node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{
+	node := &corev1.Node{
 		Name:        nodeName,
-		Annotations: map[string]string{netcupv1.ServerIDAnnotation: "202"},
-	}}
+		Annotations: map[string]string{netcupv1.ServerIDAnnotation: "202"}}
 	if err := k8sClient.Create(ctx, node); err != nil {
 		t.Fatalf("create node: %v", err)
 	}
 	t.Cleanup(func() { _ = k8sClient.Delete(ctx, node) })
 
-	request := reconcile.Request{NamespacedName: types.NamespacedName{Name: name, Namespace: namespace}}
+	request := reconcile.Request{Name: name, Namespace: namespace}
 	var persisted netcupv1.FailoverIp
 	if err := k8sClient.Get(ctx, request.NamespacedName, &persisted); err != nil {
 		t.Fatalf("get created failoverip: %v", err)
@@ -331,18 +329,17 @@ func TestLeaderChange_FencesOutOfBandProviderOwnerFromPersistedStatus(t *testing
 		secretName = "envtest-fence-secret"
 	)
 
-	fakeProvider := &countingFailoverIPClient{fakeFailoverIPClient: fakeFailoverIPClient{
+	fakeProvider := &countingFailoverIPClient{
 		findFOIPID:  17,
 		serverID:    202,
-		routeTarget: 303,
-	}}
+		routeTarget: 303}
 	previousFactory := newFailoverIPClient
 	newFailoverIPClient = func(int, string) failoverIPClient { return fakeProvider }
 	t.Cleanup(func() { newFailoverIPClient = previousFactory })
 
 	resource := &netcupv1.FailoverIp{
-		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
-		Spec:       netcupv1.FailoverIpSpec{IP: "192.0.2.13", SecretName: secretName},
+		Name: name, Namespace: namespace,
+		Spec: netcupv1.FailoverIpSpec{IP: "192.0.2.13", SecretName: secretName},
 	}
 	if err := k8sClient.Create(ctx, resource); err != nil {
 		t.Fatalf("create failoverip: %v", err)
@@ -350,24 +347,23 @@ func TestLeaderChange_FencesOutOfBandProviderOwnerFromPersistedStatus(t *testing
 	t.Cleanup(func() { _ = k8sClient.Delete(ctx, resource) })
 
 	secret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Name: secretName, Namespace: namespace},
-		Data:       map[string][]byte{"userId": []byte("42"), "refreshToken": []byte("token")},
+		Name: secretName, Namespace: namespace,
+		Data: map[string][]byte{"userId": []byte("42"), "refreshToken": []byte("token")},
 	}
 	if err := k8sClient.Create(ctx, secret); err != nil {
 		t.Fatalf("create secret: %v", err)
 	}
 	t.Cleanup(func() { _ = k8sClient.Delete(ctx, secret) })
 
-	node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{
+	node := &corev1.Node{
 		Name:        nodeName,
-		Annotations: map[string]string{netcupv1.ServerIDAnnotation: "303"},
-	}}
+		Annotations: map[string]string{netcupv1.ServerIDAnnotation: "303"}}
 	if err := k8sClient.Create(ctx, node); err != nil {
 		t.Fatalf("create node: %v", err)
 	}
 	t.Cleanup(func() { _ = k8sClient.Delete(ctx, node) })
 
-	request := reconcile.Request{NamespacedName: types.NamespacedName{Name: name, Namespace: namespace}}
+	request := reconcile.Request{Name: name, Namespace: namespace}
 	var persisted netcupv1.FailoverIp
 	if err := k8sClient.Get(ctx, request.NamespacedName, &persisted); err != nil {
 		t.Fatalf("get created failoverip: %v", err)
@@ -425,19 +421,19 @@ func TestRestartResume_ReconcilesEveryPersistedPhase(t *testing.T) {
 			secretName := name + "-secret"
 			nodeName := name + "-target"
 			resource := &netcupv1.FailoverIp{
-				ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
-				Spec:       netcupv1.FailoverIpSpec{IP: "192.0.2.20", SecretName: secretName},
+				Name: name, Namespace: "default",
+				Spec: netcupv1.FailoverIpSpec{IP: "192.0.2.20", SecretName: secretName},
 			}
 			if err := k8sClient.Create(ctx, resource); err != nil {
 				t.Fatal(err)
 			}
 			t.Cleanup(func() { _ = k8sClient.Delete(ctx, resource) })
-			secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: secretName, Namespace: "default"}, Data: map[string][]byte{"userId": []byte("42"), "refreshToken": []byte("token")}}
+			secret := &corev1.Secret{Name: secretName, Namespace: "default", Data: map[string][]byte{"userId": []byte("42"), "refreshToken": []byte("token")}}
 			if err := k8sClient.Create(ctx, secret); err != nil {
 				t.Fatal(err)
 			}
 			t.Cleanup(func() { _ = k8sClient.Delete(ctx, secret) })
-			node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: nodeName, Annotations: map[string]string{netcupv1.ServerIDAnnotation: "202"}}}
+			node := &corev1.Node{Name: nodeName, Annotations: map[string]string{netcupv1.ServerIDAnnotation: "202"}}
 			if err := k8sClient.Create(ctx, node); err != nil {
 				t.Fatal(err)
 			}
@@ -452,7 +448,7 @@ func TestRestartResume_ReconcilesEveryPersistedPhase(t *testing.T) {
 			case netcupv1.FailoverPhaseVerifyingProvider, netcupv1.FailoverPhaseVerifyingTraffic, netcupv1.FailoverPhaseCommitting, netcupv1.FailoverPhaseCleaningStaleOwners, netcupv1.FailoverPhaseSucceeded:
 				providerOwner = 202
 			}
-			provider := &countingFailoverIPClient{fakeFailoverIPClient: fakeFailoverIPClient{findFOIPID: 17, serverID: providerOwner, routeTarget: routeTarget}}
+			provider := &countingFailoverIPClient{findFOIPID: 17, serverID: providerOwner, routeTarget: routeTarget}
 			previousFactory := newFailoverIPClient
 			newFailoverIPClient = func(int, string) failoverIPClient { return provider }
 			t.Cleanup(func() { newFailoverIPClient = previousFactory })
@@ -475,7 +471,7 @@ func TestRestartResume_ReconcilesEveryPersistedPhase(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			request := reconcile.Request{NamespacedName: client.ObjectKey{Name: name, Namespace: "default"}}
+			request := reconcile.Request{Name: name, Namespace: "default"}
 			first := &FailoverIpReconciler{Client: k8sClient, APIReader: k8sClient, Scheme: k8sClient.Scheme()}
 			if _, err := first.Reconcile(ctx, request); err != nil {
 				t.Fatalf("first reconcile: %v", err)

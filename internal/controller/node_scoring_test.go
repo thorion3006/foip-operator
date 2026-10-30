@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	netcupv1 "github.com/thorion3006/foip-operator/api/v1"
 )
@@ -103,8 +102,8 @@ func TestNodeAcceptableRequiresReadyAndNoPressureOrCordon(t *testing.T) {
 
 func TestNodeForServerIDFindsObservedProviderOwner(t *testing.T) {
 	nodes := []corev1.Node{
-		{ObjectMeta: metav1.ObjectMeta{Name: "other", Annotations: map[string]string{netcupv1.ServerIDAnnotation: "2"}}},
-		{ObjectMeta: metav1.ObjectMeta{Name: "owner", Annotations: map[string]string{netcupv1.ServerIDAnnotation: "7"}}},
+		{Name: "other", Annotations: map[string]string{netcupv1.ServerIDAnnotation: "2"}},
+		{Name: "owner", Annotations: map[string]string{netcupv1.ServerIDAnnotation: "7"}},
 	}
 	owner := nodeForServerID(nodes, 7)
 	if owner == nil || owner.Name != "owner" {

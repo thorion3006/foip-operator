@@ -20,7 +20,7 @@ func (c *schedulingClock) Advance(d time.Duration) {
 
 func schedulingNode(name string, ready corev1.ConditionStatus, mutate func(*corev1.Node)) corev1.Node {
 	node := corev1.Node{
-		ObjectMeta: metav1.ObjectMeta{Name: name},
+		Name: name,
 		Status: corev1.NodeStatus{Conditions: []corev1.NodeCondition{
 			{Type: corev1.NodeReady, Status: ready},
 		}},

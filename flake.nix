@@ -18,11 +18,11 @@
           pkgs = import nixpkgs {
             inherit system;
           };
-          goPackage = pkgs.go_1_26.overrideAttrs (_: {
-            version = "1.26.5";
+          goPackage = pkgs.go_1_27.overrideAttrs (_: {
+            version = "1.27.3";
             src = pkgs.fetchurl {
-              url = "https://go.dev/dl/go1.26.5.linux-${if pkgs.stdenv.hostPlatform.system == "aarch64-linux" then "arm64" else "amd64"}.tar.gz";
-              sha256 = if pkgs.stdenv.hostPlatform.system == "aarch64-linux" then "sha256-/keJ6SsfMzWGgIZLvocEKJ57tfwgfYBiPDCJNb1pbUk=" else "sha256-XCw7FsrvodloqUwdrKBKfKMBpJbZsIbhetd7uBOT8FM=";
+              url = "https://go.dev/dl/go1.27.3.linux-${if pkgs.stdenv.hostPlatform.system == "aarch64-linux" then "arm64" else "amd64"}.tar.gz";
+              sha256 = if pkgs.stdenv.hostPlatform.system == "aarch64-linux" then "sha256-bMyyuoM1dZiQMlFqVsqRNKoo9gXls86nAWwTmennpmk=" else "sha256-FnUZaleGBAuA43mZYJAhLXhmttnraQrThbf3LSH2YLE=";
             };
           });
         in {
